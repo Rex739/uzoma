@@ -11,7 +11,7 @@ import {
 import { artifactFor, createStages, seedState } from "@/lib/mock-data";
 import type { AppState, BuildDossier, BuildJob } from "@/lib/types";
 
-const KEY = "uzoma-demo-state-v1";
+const KEY = "uzoma-demo-state-v2";
 type StateContext = {
   state: AppState;
   hydrated: boolean;
@@ -31,6 +31,16 @@ const Context = createContext<StateContext | null>(null);
 export function StateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(seedState);
   const [hydrated, setHydrated] = useState(false);
+  const updateState = useCallback(
+    (updater: (current: AppState) => AppState) => {
+      setState((current) => {
+        const next = updater(current);
+        localStorage.setItem(KEY, JSON.stringify(next));
+        return next;
+      });
+    },
+    [],
+  );
   useEffect(() => {
     try {
       const stored = localStorage.getItem(KEY);
@@ -51,7 +61,10 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("storage", syncState);
     return () => window.removeEventListener("storage", syncState);
   }, []);
-  const reset = useCallback(() => setState(seedState()), []);
+  const reset = useCallback(
+    () => updateState(() => seedState()),
+    [updateState],
+  );
   const createJob = useCallback(
     (input: {
       title: string;
@@ -79,7 +92,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
           .map((text, i) => ({ id: `${id}-criterion-${i}`, text, met: false })),
         stages: createStages(1),
       };
-      setState((s) => ({
+      updateState((s) => ({
         ...s,
         jobs: [job, ...s.jobs],
         events: [
@@ -96,11 +109,11 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
       }));
       return id;
     },
-    [],
+    [updateState],
   );
   const runNextStage = useCallback(
     (jobId: string) =>
-      setState((s) => {
+      updateState((s) => {
         const job = s.jobs.find((j) => j.id === jobId);
         if (!job) return s;
         const activeIndex = job.stages.findIndex((x) => x.status === "active");
@@ -148,76 +161,80 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
           events: [event, ...s.events],
         };
       }),
-    [],
+    [updateState],
   );
-  const createDossier = useCallback((jobId: string) => {
-    let dossierId: string | undefined;
-    setState((s) => {
-      const job = s.jobs.find((j) => j.id === jobId);
-      if (!job || job.dossierId) {
-        dossierId = job?.dossierId;
-        return s;
-      }
-      const acceptedIndex = job.stages.findIndex((st) => st.id === "accepted");
-      if (acceptedIndex < 0 || job.stages[acceptedIndex].status !== "active")
-        return s;
-      const now = new Date().toISOString();
-      dossierId = job.id;
-      const artifacts = job.stages.flatMap((st) =>
-        st.artifact ? [st.artifact] : [],
-      );
-      const event = {
-        id: `evt-${Date.now()}`,
-        jobId,
-        type: "dossier.generated",
-        title: "Build Dossier generated",
-        description:
-          "Artifact hashes, delivery receipts, and approval evidence were compiled.",
-        timestamp: now,
-        agentId: "uzoma" as const,
-      };
-      const dossier: BuildDossier = {
-        id: dossierId,
-        jobId,
-        createdAt: now,
-        dossierHash: `sha256:${`uzoma-dossier-${jobId}`.padEnd(64, "4fd18b").slice(0, 64)}`,
-        finalApproval: "Approved",
-        proofStatus: "Integration Architecture — Not Yet Anchored",
-        artifacts,
-        timeline: [...s.events.filter((e) => e.jobId === jobId), event].sort(
-          (a, b) => a.timestamp.localeCompare(b.timestamp),
-        ),
-        receipts: artifacts.map((a, i) => ({
-          id: `x402-demo-${jobId}-${String(i + 1).padStart(3, "0")}`,
-          stageId: a.id,
-          status: "mock",
-          amount: agentsQuote(a.agentId),
-          note: "Mock delivery receipt — no payment executed",
-        })),
-      };
-      const stages = job.stages.map((st) =>
-        st.id === "accepted" || st.id === "dossier"
-          ? { ...st, status: "completed" as const, timestamp: now }
-          : st,
-      );
-      return {
-        jobs: s.jobs.map((j) =>
-          j.id === jobId
-            ? {
-                ...j,
-                stages,
-                status: "Dossier Created",
-                dossierId,
-                criteria: j.criteria.map((c) => ({ ...c, met: true })),
-              }
-            : j,
-        ),
-        dossiers: [dossier, ...s.dossiers],
-        events: [event, ...s.events],
-      };
-    });
-    return dossierId;
-  }, []);
+  const createDossier = useCallback(
+    (jobId: string) => {
+      let dossierId: string | undefined;
+      updateState((s) => {
+        const job = s.jobs.find((j) => j.id === jobId);
+        if (!job || job.dossierId) {
+          dossierId = job?.dossierId;
+          return s;
+        }
+        const acceptedIndex = job.stages.findIndex(
+          (st) => st.id === "accepted",
+        );
+        if (acceptedIndex < 0 || job.stages[acceptedIndex].status !== "active")
+          return s;
+        const now = new Date().toISOString();
+        dossierId = job.id;
+        const artifacts = job.stages.flatMap((st) =>
+          st.artifact ? [st.artifact] : [],
+        );
+        const event = {
+          id: `evt-${Date.now()}`,
+          jobId,
+          type: "dossier.generated",
+          title: "Build Dossier generated",
+          description: `${job.title} accepted and recorded in the local dossier registry.`,
+          timestamp: now,
+          agentId: "uzoma" as const,
+        };
+        const dossier: BuildDossier = {
+          id: dossierId,
+          jobId,
+          createdAt: now,
+          dossierHash: `sha256:${`uzoma-dossier-${jobId}`.padEnd(64, "4fd18b").slice(0, 64)}`,
+          finalApproval: "Approved",
+          proofStatus: "Integration Architecture — Not Yet Anchored",
+          artifacts,
+          timeline: [...s.events.filter((e) => e.jobId === jobId), event].sort(
+            (a, b) => a.timestamp.localeCompare(b.timestamp),
+          ),
+          receipts: artifacts.map((a, i) => ({
+            id: `x402-demo-${jobId}-${String(i + 1).padStart(3, "0")}`,
+            stageId: a.id,
+            status: "mock",
+            amount: agentsQuote(a.agentId),
+            note: "Mock delivery receipt — no payment executed",
+          })),
+        };
+        const stages = job.stages.map((st) =>
+          st.id === "accepted" || st.id === "dossier"
+            ? { ...st, status: "completed" as const, timestamp: now }
+            : st,
+        );
+        return {
+          jobs: s.jobs.map((j) =>
+            j.id === jobId
+              ? {
+                  ...j,
+                  stages,
+                  status: "Dossier Created",
+                  dossierId,
+                  criteria: j.criteria.map((c) => ({ ...c, met: true })),
+                }
+              : j,
+          ),
+          dossiers: [dossier, ...s.dossiers],
+          events: [event, ...s.events],
+        };
+      });
+      return dossierId;
+    },
+    [updateState],
+  );
   const value = useMemo(
     () => ({ state, hydrated, reset, createJob, runNextStage, createDossier }),
     [state, hydrated, reset, createJob, runNextStage, createDossier],

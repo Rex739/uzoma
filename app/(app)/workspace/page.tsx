@@ -5,27 +5,55 @@ import { CreateJobDialog } from "@/components/create-job-dialog";
 import { JobList } from "@/components/job-list";
 import { PageHeading } from "@/components/page-heading";
 import { useAppState } from "@/components/state-provider";
+import {
+  countsTowardActiveJobs,
+  deriveJobStatus,
+  getDeliveredArtifacts,
+  isOpenJobStatus,
+} from "@/lib/jobs/status";
 import { agents } from "@/lib/mock-data";
 import { formatTime } from "@/lib/utils";
 
 export default function WorkspacePage() {
   const { state } = useAppState();
+  const classifiedJobs = state.jobs.map((job) => ({
+    job,
+    status: deriveJobStatus(job, state.dossiers),
+  }));
+  const activeJobs = classifiedJobs
+    .filter(({ status }) => isOpenJobStatus(status))
+    .map(({ job }) => job);
+  const acceptedJobs = classifiedJobs
+    .filter(({ status }) => status === "accepted")
+    .map(({ job }) => job);
+  const latestEvent = [...state.events].sort((a, b) =>
+    b.timestamp.localeCompare(a.timestamp),
+  )[0];
   const stats = [
     {
       label: "Active jobs",
-      value: state.jobs.filter((j) => !j.dossierId).length,
+      value: classifiedJobs.filter(({ status }) =>
+        countsTowardActiveJobs(status),
+      ).length,
       icon: Zap,
     },
-    { label: "Agents online", value: 4, icon: Bot },
+    {
+      label: "Agents online",
+      value: agents.filter((agent) => agent.availability === "Online").length,
+      icon: Bot,
+    },
     {
       label: "Artifacts delivered",
-      value: state.jobs.flatMap((j) => j.stages).filter((s) => s.artifact)
-        .length,
+      value: state.jobs.reduce(
+        (total, job) => total + getDeliveredArtifacts(job).length,
+        0,
+      ),
       icon: FileText,
     },
     {
       label: "Accepted dossiers",
-      value: state.dossiers.length,
+      value: classifiedJobs.filter(({ status }) => status === "accepted")
+        .length,
       icon: CheckCircle2,
     },
   ];
@@ -53,12 +81,26 @@ export default function WorkspacePage() {
       <div className="mt-8 grid gap-8 xl:grid-cols-[1fr_340px]">
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Current build requests</h2>
+            <h2 className="text-sm font-semibold">Active build requests</h2>
             <span className="font-mono text-[10px] text-slate-600">
               LOCAL STATE
             </span>
           </div>
-          <JobList compact />
+          <JobList
+            jobs={activeJobs}
+            dossiers={state.dossiers}
+            emptyTitle="No active build requests"
+            emptyDescription="No active build requests. Create a request to begin a verified delivery workflow."
+          />
+          <div className="mb-4 mt-8 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">
+              Recent accepted deliveries
+            </h2>
+            <span className="font-mono text-[10px] text-gold/70">
+              VERIFIED LOCALLY
+            </span>
+          </div>
+          <JobList jobs={acceptedJobs} dossiers={state.dossiers} compact />
         </section>
         <aside>
           <div className="mb-4 flex items-center justify-between">
@@ -78,7 +120,9 @@ export default function WorkspacePage() {
                   <p className="text-xs font-semibold">{a.name}</p>
                   <p className="mt-0.5 text-[11px] text-slate-600">{a.role}</p>
                 </div>
-                <span className="ml-auto size-1.5 rounded-full bg-emerald" />
+                <span
+                  className={`ml-auto size-1.5 rounded-full ${a.availability === "Online" ? "bg-emerald" : "bg-slate-600"}`}
+                />
               </div>
             ))}
           </div>
@@ -87,13 +131,16 @@ export default function WorkspacePage() {
               <Activity className="size-4 text-cyan" />
               Latest system event
             </div>
-            {state.events[0] ? (
+            {latestEvent ? (
               <>
                 <p className="mt-3 text-xs text-slate-400">
-                  {state.events[0].title}
+                  {latestEvent.title}
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-600">
+                  {latestEvent.description}
                 </p>
                 <p className="mt-1 font-mono text-[9px] text-slate-700">
-                  {formatTime(state.events[0].timestamp)}
+                  {formatTime(latestEvent.timestamp)}
                 </p>
               </>
             ) : (

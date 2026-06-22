@@ -1,6 +1,7 @@
 import type {
   AgentProfile,
   AppState,
+  BuildDossier,
   BuildJob,
   DeliveryArtifact,
   JobStage,
@@ -127,23 +128,6 @@ export function createStages(completed = 1): JobStage[] {
   }));
 }
 
-export const defaultJob: BuildJob = {
-  id: "demo-escrow",
-  title: "Milestone Escrow Contract",
-  request:
-    "Build a time-limited milestone escrow contract with payer and recipient roles, milestone approval, refund conditions, test coverage, and an independent review.",
-  contractType: "Escrow",
-  priority: "High",
-  status: "Planning",
-  createdAt: "2026-06-20T09:14:00.000Z",
-  criteria: criteria.map((text, i) => ({
-    id: `criterion-${i + 1}`,
-    text,
-    met: false,
-  })),
-  stages: createStages(1),
-};
-
 const code = `#[odra::module]\npub struct MilestoneEscrow {\n    payer: Var<Address>,\n    recipient: Var<Address>,\n    deadline: Var<u64>,\n    approved: Var<bool>,\n}\n\n#[odra::module]\nimpl MilestoneEscrow {\n    pub fn approve_milestone(&mut self) {\n        self.assert_payer();\n        self.approved.set(true);\n    }\n\n    pub fn release(&mut self) {\n        if !self.approved.get_or_default() {\n            self.env().revert(Error::NotApproved);\n        }\n        // Transfer held funds to the recipient.\n    }\n\n    pub fn refund_after_timeout(&mut self) {\n        if self.env().get_block_time() <= self.deadline.get().unwrap() {\n            self.env().revert(Error::DeadlineActive);\n        }\n        // Return held funds to the payer.\n    }\n}`;
 
 const artifactBase = {
@@ -253,19 +237,115 @@ export function artifactFor(
   } as DeliveryArtifact;
 }
 
+const seedStageTimes: Record<string, string> = {
+  requested: "2026-06-20T09:14:00.000Z",
+  planning: "2026-06-20T09:28:00.000Z",
+  building: "2026-06-20T09:46:00.000Z",
+  testing: "2026-06-20T10:02:00.000Z",
+  reviewing: "2026-06-20T10:15:00.000Z",
+  accepted: "2026-06-20T10:21:00.000Z",
+  dossier: "2026-06-20T10:21:00.000Z",
+};
+
+export const defaultJob: BuildJob = {
+  id: "demo-escrow",
+  title: "Milestone Escrow Contract",
+  request:
+    "Build a time-limited milestone escrow contract with payer and recipient roles, milestone approval, refund conditions, test coverage, and an independent review.",
+  contractType: "Escrow",
+  priority: "High",
+  status: "Accepted",
+  createdAt: seedStageTimes.requested,
+  dossierId: "demo-escrow",
+  criteria: criteria.map((text, i) => ({
+    id: `criterion-${i + 1}`,
+    text,
+    met: true,
+  })),
+  stages: createStages(7).map((stage) => ({
+    ...stage,
+    timestamp: seedStageTimes[stage.id],
+    artifact: artifactFor(stage.id, "demo-escrow", seedStageTimes[stage.id]),
+  })),
+};
+
+const seedEvents = [
+  {
+    id: "evt-seed-created",
+    jobId: defaultJob.id,
+    type: "job.created",
+    title: "Build request created",
+    description: "Milestone Escrow Contract entered the delivery workflow.",
+    timestamp: seedStageTimes.requested,
+  },
+  ...defaultJob.stages.flatMap((stage) =>
+    stage.artifact
+      ? [
+          {
+            id: `evt-seed-${stage.id}`,
+            jobId: defaultJob.id,
+            type: "artifact.submitted",
+            title: `${stage.artifact.name} submitted`,
+            description: stage.artifact.summary,
+            timestamp: stage.timestamp!,
+            agentId: stage.agentId,
+          },
+        ]
+      : [],
+  ),
+  {
+    id: "evt-seed-dossier",
+    jobId: defaultJob.id,
+    type: "dossier.generated",
+    title: "Build Dossier generated",
+    description:
+      "Milestone Escrow Contract accepted and recorded in the local dossier registry.",
+    timestamp: seedStageTimes.dossier,
+    agentId: "uzoma" as const,
+  },
+];
+
+const defaultDossier: BuildDossier = {
+  id: "demo-escrow",
+  jobId: defaultJob.id,
+  createdAt: seedStageTimes.dossier,
+  dossierHash: `sha256:${"uzoma-dossier-demo-escrow".padEnd(64, "4fd18b").slice(0, 64)}`,
+  finalApproval: "Approved",
+  proofStatus: "Integration Architecture — Not Yet Anchored",
+  artifacts: defaultJob.stages.flatMap((stage) =>
+    stage.artifact ? [stage.artifact] : [],
+  ),
+  timeline: [...seedEvents].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  ),
+  receipts: defaultJob.stages.flatMap((stage, index) =>
+    stage.artifact
+      ? [
+          {
+            id: `x402-demo-escrow-${String(index).padStart(3, "0")}`,
+            stageId: stage.artifact.id,
+            status: "mock" as const,
+            amount:
+              stage.agentId === "atlas"
+                ? "$18.00"
+                : stage.agentId === "forge"
+                  ? "$64.00"
+                  : stage.agentId === "sentinel"
+                    ? "$28.00"
+                    : "$24.00",
+            note: "Mock delivery receipt — no payment executed",
+          },
+        ]
+      : [],
+  ),
+};
+
 export function seedState(): AppState {
   return {
     jobs: [structuredClone(defaultJob)],
-    dossiers: [],
-    events: [
-      {
-        id: "evt-seed",
-        jobId: defaultJob.id,
-        type: "job.created",
-        title: "Build request created",
-        description: "Milestone Escrow Contract entered the delivery workflow.",
-        timestamp: defaultJob.createdAt,
-      },
-    ],
+    dossiers: [structuredClone(defaultDossier)],
+    events: structuredClone(seedEvents).sort((a, b) =>
+      b.timestamp.localeCompare(a.timestamp),
+    ),
   };
 }

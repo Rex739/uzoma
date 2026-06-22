@@ -54,12 +54,14 @@ export function Badge({
   className,
 }: {
   children: React.ReactNode;
-  tone?: "slate" | "cyan" | "gold" | "green" | "red";
+  tone?: "slate" | "cyan" | "blue" | "amber" | "gold" | "green" | "red";
   className?: string;
 }) {
   const tones = {
     slate: "border-slate-700 bg-slate-800/40 text-slate-400",
     cyan: "border-cyan/20 bg-cyan/10 text-cyan",
+    blue: "border-blue-400/30 bg-blue-400/10 text-blue-300",
+    amber: "border-amber-400/30 bg-amber-400/10 text-amber-300",
     gold: "border-gold/20 bg-gold/10 text-gold",
     green: "border-emerald/20 bg-emerald/10 text-emerald",
     red: "border-red-500/20 bg-red-500/10 text-red-300",
