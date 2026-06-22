@@ -23,6 +23,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
+import {
+  deriveJobStatus,
+  getJobProgress,
+  jobStatusMeta,
+} from "@/lib/jobs/status";
 import { agents } from "@/lib/mock-data";
 import type { DeliveryArtifact, JobStage, StageStatus } from "@/lib/types";
 import { cn, shortHash } from "@/lib/utils";
@@ -279,10 +284,9 @@ export function JobDetail({ id }: { id: string }) {
 
   const active = job.stages.find((stage) => stage.status === "active");
   const deliveryStages = job.stages.filter((stage) => stage.id !== "requested");
-  const completedCount = deliveryStages.filter(
-    (stage) => stage.status === "completed",
-  ).length;
-  const progress = Math.round((completedCount / deliveryStages.length) * 100);
+  const jobProgress = getJobProgress(job);
+  const derivedStatus = deriveJobStatus(job, state.dossiers);
+  const statusMeta = jobStatusMeta[derivedStatus];
   const canDossier = active?.id === "accepted";
   const artifacts = job.stages.flatMap((stage) =>
     stage.artifact ? [stage.artifact] : [],
@@ -314,7 +318,7 @@ export function JobDetail({ id }: { id: string }) {
       <div className="mt-5 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={job.dossierId ? "gold" : "cyan"}>{job.status}</Badge>
+            <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
             <Badge>{job.priority} priority</Badge>
             <span className="font-mono text-[10px] uppercase tracking-wider text-slate-600">
               {job.id}
@@ -358,11 +362,11 @@ export function JobDetail({ id }: { id: string }) {
           <div>
             <p className="eyebrow">Delivery progress</p>
             <p className="mt-2 text-sm font-semibold text-white">
-              {completedCount} of {deliveryStages.length} stages complete
+              {jobProgress.completed} of {jobProgress.total} stages complete
             </p>
           </div>
           <p className="font-mono text-2xl font-semibold text-cyan">
-            {progress}%
+            {jobProgress.percent}%
           </p>
         </div>
         <div className="h-1.5 bg-[#070b11]">
@@ -371,7 +375,7 @@ export function JobDetail({ id }: { id: string }) {
               "h-full transition-all duration-700 ease-out",
               job.dossierId ? "bg-gold" : "bg-cyan",
             )}
-            style={{ width: `${progress}%` }}
+            style={{ width: `${jobProgress.percent}%` }}
           />
         </div>
         <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -463,6 +467,39 @@ export function JobDetail({ id }: { id: string }) {
             <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
               {job.request}
             </p>
+          </section>
+          <section className="surface overflow-hidden">
+            <div className="border-b border-line px-5 py-4 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-white">
+                  Lead agent orchestration
+                </h2>
+                <Badge tone="cyan">Decision log</Badge>
+              </div>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+                Escrow delivery requires explicit authority rules, timeout
+                protection, adversarial testing, and independent evidence review
+                before acceptance.
+              </p>
+            </div>
+            <div className="grid gap-px bg-line sm:grid-cols-2">
+              {[
+                "Workflow selected: milestone escrow delivery",
+                "Planning assigned to Atlas: requirements and acceptance criteria",
+                "Implementation assigned to Forge: Odra-style contract artifact",
+                "Validation split between Sentinel and Verity for independent testing and acceptance review",
+              ].map((decision, index) => (
+                <div
+                  className="flex gap-3 bg-panel px-5 py-4 sm:px-6"
+                  key={decision}
+                >
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full border border-cyan/20 bg-cyan/5 font-mono text-[9px] text-cyan">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <p className="text-xs leading-5 text-slate-300">{decision}</p>
+                </div>
+              ))}
+            </div>
           </section>
           <section>
             <div className="mb-4 flex items-center justify-between">
@@ -604,17 +641,43 @@ export function JobDetail({ id }: { id: string }) {
               ))}
             </div>
           </section>
-          <section className="surface p-5">
-            <div className="flex items-center gap-2">
-              <LockKeyhole className="size-4 text-gold" />
-              <p className="text-xs font-semibold">Dossier gate</p>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">
-              Available after independent review and acceptance.{" "}
-              <span className="text-slate-300">{artifacts.length} of 4</span>{" "}
-              delivery artifacts recorded.
-            </p>
-          </section>
+          {derivedStatus === "accepted" ? (
+            <section className="surface border-gold/25 bg-gold/[.025] p-5 shadow-[0_0_28px_rgba(241,190,72,.05)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-white">
+                  Dossier status
+                </p>
+                <Badge tone="gold">Verified</Badge>
+              </div>
+              <div className="mt-4 space-y-3">
+                {[
+                  `${artifacts.length} delivery artifacts recorded`,
+                  "Acceptance evidence compiled",
+                  "Build dossier created",
+                ].map((item) => (
+                  <p
+                    className="flex items-center gap-2.5 text-xs text-slate-300"
+                    key={item}
+                  >
+                    <CheckCircle2 className="size-4 shrink-0 text-emerald" />
+                    {item}
+                  </p>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="surface p-5">
+              <div className="flex items-center gap-2">
+                <LockKeyhole className="size-4 text-gold" />
+                <p className="text-xs font-semibold">Dossier gate</p>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Available after independent review and acceptance.{" "}
+                <span className="text-slate-300">{artifacts.length} of 4</span>{" "}
+                delivery artifacts recorded.
+              </p>
+            </section>
+          )}
           <section className="surface p-5">
             <p className="eyebrow">Current action</p>
             <div className="mt-4 flex items-center gap-3">
