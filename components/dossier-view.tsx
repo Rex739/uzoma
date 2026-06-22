@@ -369,8 +369,8 @@ export function DossierView({ id }: { id: string }) {
               </p>
             </div>
             <p className="mt-3 text-xs leading-6 text-slate-400">
-              A future Odra contract can anchor the dossier hash, timestamp, and
-              artifact references on Casper.
+              Uzoma is ready to anchor the dossier hash, timestamp, and artifact
+              references through the Casper Build Dossier Registry.
             </p>
             <div className="mt-4 border-t border-cyan/10 pt-4">
               <p className="text-[10px] uppercase tracking-wider text-slate-600">
