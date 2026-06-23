@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "contracts:artifact-root": "node --import tsx contracts/build-dossier-registry/scripts/compute-artifact-root.ts"
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -30,6 +31,7 @@
     "postcss": "8.5.15",
     "prettier": "^3.6.2",
     "tailwindcss": "3.4.19",
+    "tsx": "^4.22.4",
     "typescript": "5.9.3"
   }
 }

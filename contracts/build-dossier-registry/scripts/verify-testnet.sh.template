@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+# Read-only transaction verification. This script never uses a key or submits.
+set -euo pipefail
+
+: "${CASPER_TESTNET_RPC:?Set CASPER_TESTNET_RPC to the Testnet JSON-RPC URL}"
+TRANSACTION_HASH="${1:-}"
+[[ -n "$TRANSACTION_HASH" ]] || { printf 'Usage: %s <transaction-or-deploy-hash>\n' "$0" >&2; exit 2; }
+printf 'Transaction hash: %s\n' "$TRANSACTION_HASH"
+
+if ! RESPONSE="$(casper-client get-transaction \
+  --node-address "$CASPER_TESTNET_RPC" \
+  "$TRANSACTION_HASH" 2>&1)"; then
+  printf 'PENDING/UNKNOWN: transaction could not be retrieved yet.\n%s\n' "$RESPONSE"
+  exit 3
+fi
+
+printf '%s' "$RESPONSE" | node -e '
+  let data = "";
+  process.stdin.on("data", chunk => data += chunk);
+  process.stdin.on("end", () => {
+    const parsed = JSON.parse(data);
+    if (parsed.error) {
+      console.log(`PENDING/UNKNOWN: ${parsed.error.message ?? "transaction is not available"}`);
+      process.exitCode = 3;
+      return;
+    }
+    const execution = parsed.result?.execution_info?.execution_result;
+    if (!execution) {
+      console.log("PENDING: transaction accepted or not yet executed.");
+      process.exitCode = 3;
+      return;
+    }
+    if (execution.Version1?.Failure) {
+      console.log(`FAILED: ${execution.Version1.Failure.error_message ?? "execution failed"}`);
+      console.log(JSON.stringify(execution, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    if (execution.Version1?.Success) {
+      console.log("SUCCESS: transaction executed successfully.");
+      console.log(JSON.stringify(execution, null, 2));
+      return;
+    }
+    if (execution.Version2) {
+      if (execution.Version2.error_message) {
+        console.log(`FAILED: ${execution.Version2.error_message}`);
+        console.log(JSON.stringify(execution, null, 2));
+        process.exitCode = 1;
+      } else {
+        console.log("SUCCESS: transaction executed successfully.");
+        console.log(JSON.stringify(execution, null, 2));
+      }
+      return;
+    }
+    console.log("PENDING/UNKNOWN: execution result shape is not recognized.");
+    process.exitCode = 3;
+  });
+'
+
+printf '\nAfter a successful install, query the installer account:\n'
+printf '  casper-client get-account --node-address "$CASPER_TESTNET_RPC" --account-identifier "$CASPER_PUBLIC_KEY"\n'
+printf 'Inspect result.account.named_keys for BuildDossierRegistry package and contract hashes.\n'
+printf 'Record the formatted package hash (hash-...) and current contract hash in the deployment metadata.\n'
+printf 'The transaction/deploy hash is the argument printed above and returned by the original put-transaction command.\n'

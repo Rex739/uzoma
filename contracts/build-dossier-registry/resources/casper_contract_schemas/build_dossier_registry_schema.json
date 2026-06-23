@@ -1,0 +1,283 @@
+{
+  "casper_contract_schema_version": 1,
+  "toolchain": "rustc 1.98.0-nightly (91fe22da8 2026-06-21)",
+  "authors": [],
+  "repository": null,
+  "homepage": null,
+  "contract_name": "BuildDossierRegistry",
+  "contract_version": "0.1.0",
+  "types": [
+    {
+      "struct": {
+        "name": "DossierAnchored",
+        "description": null,
+        "members": [
+          {
+            "name": "id",
+            "description": null,
+            "ty": "U64"
+          },
+          {
+            "name": "creator",
+            "description": null,
+            "ty": "Key"
+          },
+          {
+            "name": "job_id",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "dossier_hash",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "artifact_root_hash",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "artifact_count",
+            "description": null,
+            "ty": "U32"
+          },
+          {
+            "name": "accepted",
+            "description": null,
+            "ty": "Bool"
+          },
+          {
+            "name": "recorded_at",
+            "description": null,
+            "ty": "U64"
+          }
+        ]
+      }
+    },
+    {
+      "struct": {
+        "name": "DossierRecord",
+        "description": null,
+        "members": [
+          {
+            "name": "id",
+            "description": null,
+            "ty": "U64"
+          },
+          {
+            "name": "creator",
+            "description": null,
+            "ty": "Key"
+          },
+          {
+            "name": "job_id",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "dossier_hash",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "artifact_root_hash",
+            "description": null,
+            "ty": "String"
+          },
+          {
+            "name": "artifact_count",
+            "description": null,
+            "ty": "U32"
+          },
+          {
+            "name": "accepted",
+            "description": null,
+            "ty": "Bool"
+          },
+          {
+            "name": "recorded_at",
+            "description": null,
+            "ty": "U64"
+          }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    {
+      "name": "DossierCountOverflow",
+      "description": "",
+      "discriminant": 5
+    },
+    {
+      "name": "DuplicateDossierHash",
+      "description": "",
+      "discriminant": 4
+    },
+    {
+      "name": "EmptyArtifactRootHash",
+      "description": "",
+      "discriminant": 2
+    },
+    {
+      "name": "EmptyDossierHash",
+      "description": "",
+      "discriminant": 1
+    },
+    {
+      "name": "ZeroArtifactCount",
+      "description": "",
+      "discriminant": 3
+    }
+  ],
+  "entry_points": [
+    {
+      "name": "anchor_dossier",
+      "description": "Anchors accepted dossier evidence and returns its one-based registry ID.",
+      "is_mutable": true,
+      "arguments": [
+        {
+          "name": "job_id",
+          "description": null,
+          "ty": "String",
+          "optional": false
+        },
+        {
+          "name": "dossier_hash",
+          "description": null,
+          "ty": "String",
+          "optional": false
+        },
+        {
+          "name": "artifact_root_hash",
+          "description": null,
+          "ty": "String",
+          "optional": false
+        },
+        {
+          "name": "artifact_count",
+          "description": null,
+          "ty": "U32",
+          "optional": false
+        }
+      ],
+      "return_ty": "U64",
+      "is_contract_context": true,
+      "access": "public"
+    },
+    {
+      "name": "get_dossier",
+      "description": "Returns a dossier record by its registry ID.",
+      "is_mutable": false,
+      "arguments": [
+        {
+          "name": "id",
+          "description": null,
+          "ty": "U64",
+          "optional": false
+        }
+      ],
+      "return_ty": {
+        "Option": "DossierRecord"
+      },
+      "is_contract_context": true,
+      "access": "public"
+    },
+    {
+      "name": "get_dossier_by_hash",
+      "description": "Returns a dossier record by its immutable dossier hash.",
+      "is_mutable": false,
+      "arguments": [
+        {
+          "name": "dossier_hash",
+          "description": null,
+          "ty": "String",
+          "optional": false
+        }
+      ],
+      "return_ty": {
+        "Option": "DossierRecord"
+      },
+      "is_contract_context": true,
+      "access": "public"
+    },
+    {
+      "name": "get_dossier_count",
+      "description": "Returns the total number of anchored dossiers.",
+      "is_mutable": false,
+      "arguments": [],
+      "return_ty": "U64",
+      "is_contract_context": true,
+      "access": "public"
+    },
+    {
+      "name": "has_dossier_hash",
+      "description": "Returns whether a dossier hash has already been anchored.",
+      "is_mutable": false,
+      "arguments": [
+        {
+          "name": "dossier_hash",
+          "description": null,
+          "ty": "String",
+          "optional": false
+        }
+      ],
+      "return_ty": "Bool",
+      "is_contract_context": true,
+      "access": "public"
+    },
+    {
+      "name": "get_creator_dossier_count",
+      "description": "Returns the number of dossiers anchored by a caller identity.",
+      "is_mutable": false,
+      "arguments": [
+        {
+          "name": "creator",
+          "description": null,
+          "ty": "Key",
+          "optional": false
+        }
+      ],
+      "return_ty": "U64",
+      "is_contract_context": true,
+      "access": "public"
+    }
+  ],
+  "events": [
+    {
+      "name": "DossierAnchored",
+      "ty": "DossierAnchored"
+    }
+  ],
+  "call": {
+    "wasm_file_name": "BuildDossierRegistry.wasm",
+    "description": "Initializes an empty registry.",
+    "arguments": [
+      {
+        "name": "odra_cfg_package_hash_key_name",
+        "description": "The arg name for the package hash key name.",
+        "ty": "String",
+        "optional": false
+      },
+      {
+        "name": "odra_cfg_allow_key_override",
+        "description": "If true and the key specified in odra_cfg_package_hash_key_name already exists, it will be overwritten.",
+        "ty": "Bool",
+        "optional": false
+      },
+      {
+        "name": "odra_cfg_is_upgradable",
+        "description": "The arg name for the contract upgradeability setting.",
+        "ty": "Bool",
+        "optional": false
+      },
+      {
+        "name": "odra_cfg_is_upgrade",
+        "description": "The arg name for telling the installer that the contract is being upgraded.",
+        "ty": "Bool",
+        "optional": false
+      }
+    ]
+  }
+}

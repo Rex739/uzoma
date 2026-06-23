@@ -1,0 +1,14 @@
+{
+  "schema": "uzoma.casper-deployment.v1",
+  "network": "casper-testnet",
+  "status": "example-placeholder",
+  "rpc": "https://YOUR-TESTNET-NODE-RPC",
+  "chainName": "CHAIN-NAME-REPORTED-BY-THE-NODE",
+  "publicKey": "YOUR-CASPER-PUBLIC-KEY",
+  "wasmPath": "wasm/BuildDossierRegistry.wasm",
+  "installTransactionHash": null,
+  "contractPackageHash": null,
+  "contractHash": null,
+  "submittedAt": null,
+  "verifiedAt": null
+}

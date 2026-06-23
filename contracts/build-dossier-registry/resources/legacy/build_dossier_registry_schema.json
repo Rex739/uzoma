@@ -1,0 +1,189 @@
+{
+  "name": "BuildDossierRegistry",
+  "events": [
+    {
+      "name": "DossierAnchored",
+      "args": [
+        {
+          "name": "id",
+          "ty": "U64",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "creator",
+          "ty": "Key",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "job_id",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "dossier_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "artifact_root_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "artifact_count",
+          "ty": "U32",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "accepted",
+          "ty": "Bool",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "recorded_at",
+          "ty": "U64",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ]
+    }
+  ],
+  "entrypoints": [
+    {
+      "name": "init",
+      "args": [],
+      "is_mutable": true,
+      "return_ty": "Unit",
+      "ty": "Constructor",
+      "attributes": []
+    },
+    {
+      "name": "anchor_dossier",
+      "args": [
+        {
+          "name": "job_id",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "dossier_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "artifact_root_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        },
+        {
+          "name": "artifact_count",
+          "ty": "U32",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ],
+      "is_mutable": true,
+      "return_ty": "U64",
+      "ty": "Public",
+      "attributes": []
+    },
+    {
+      "name": "get_dossier",
+      "args": [
+        {
+          "name": "id",
+          "ty": "U64",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ],
+      "is_mutable": false,
+      "return_ty": {
+        "Option": "Any"
+      },
+      "ty": "Public",
+      "attributes": []
+    },
+    {
+      "name": "get_dossier_by_hash",
+      "args": [
+        {
+          "name": "dossier_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ],
+      "is_mutable": false,
+      "return_ty": {
+        "Option": "Any"
+      },
+      "ty": "Public",
+      "attributes": []
+    },
+    {
+      "name": "get_dossier_count",
+      "args": [],
+      "is_mutable": false,
+      "return_ty": "U64",
+      "ty": "Public",
+      "attributes": []
+    },
+    {
+      "name": "has_dossier_hash",
+      "args": [
+        {
+          "name": "dossier_hash",
+          "ty": "String",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ],
+      "is_mutable": false,
+      "return_ty": "Bool",
+      "ty": "Public",
+      "attributes": []
+    },
+    {
+      "name": "get_creator_dossier_count",
+      "args": [
+        {
+          "name": "creator",
+          "ty": "Key",
+          "is_ref": false,
+          "is_slice": false,
+          "is_required": true
+        }
+      ],
+      "is_mutable": false,
+      "return_ty": "U64",
+      "ty": "Public",
+      "attributes": []
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# Casper supplies these host functions when the contract executes on-chain.
+rustflags = ["-C", "link-arg=--allow-undefined"]

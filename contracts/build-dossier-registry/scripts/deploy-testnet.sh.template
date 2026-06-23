@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+# Deliberate-use template. Copy it to a local ignored filename, inspect every
+# argument, export the required values, and set UZOMA_CONFIRM_TESTNET_DEPLOY=YES.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONTRACT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WASM_PATH="${CONTRACT_DIR}/wasm/BuildDossierRegistry.wasm"
+METADATA_PATH="${CONTRACT_DIR}/deployments/testnet.example.json"
+
+: "${CASPER_TESTNET_RPC:?Set CASPER_TESTNET_RPC to the Testnet JSON-RPC URL}"
+: "${CASPER_CHAIN_NAME:?Set CASPER_CHAIN_NAME to the node-reported Testnet chain name}"
+: "${CASPER_SECRET_KEY_PATH:?Set CASPER_SECRET_KEY_PATH to your local secret_key.pem}"
+: "${CASPER_PUBLIC_KEY:?Set CASPER_PUBLIC_KEY to the signing account public key}"
+: "${CASPER_PAYMENT_AMOUNT:?Set CASPER_PAYMENT_AMOUNT after estimating install cost}"
+
+printf 'WARNING: selected Testnet payment amount is %s motes. This value must be independently reviewed, not guessed.\n' "$CASPER_PAYMENT_AMOUNT"
+if [[ ! "$CASPER_PAYMENT_AMOUNT" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'CASPER_PAYMENT_AMOUNT must be a positive integer in motes.\n' >&2
+  exit 1
+fi
+if [[ "${UZOMA_CONFIRM_PAYMENT_AMOUNT:-}" != "YES" ]]; then
+  printf 'Refusing to submit. Set UZOMA_CONFIRM_PAYMENT_AMOUNT=YES only after deliberately reviewing the amount.\n' >&2
+  exit 1
+fi
+if [[ "${UZOMA_CONFIRM_TESTNET_DEPLOY:-}" != "YES" ]]; then
+  printf 'Refusing to submit. Set UZOMA_CONFIRM_TESTNET_DEPLOY=YES only after reviewing this template.\n' >&2
+  exit 1
+fi
+[[ -f "$CASPER_SECRET_KEY_PATH" ]] || { printf 'Secret-key file not found.\n' >&2; exit 1; }
+[[ -f "$WASM_PATH" ]] || { printf 'WASM not found at %s\n' "$WASM_PATH" >&2; exit 1; }
+
+# put-transaction session uploads installer WASM:
+# --node-address selects the user-supplied Testnet JSON-RPC endpoint.
+# --secret-key signs locally with the user-supplied key file.
+# --wasm-path selects the optimized BuildDossierRegistry installer artifact.
+# --chain-name binds the transaction to the node-reported Testnet network.
+# --pricing-mode classic selects PaymentLimited pricing on this client.
+# --payment-amount is the deliberately reviewed maximum payment in motes.
+# --standard-payment true completes the required classic-pricing fields.
+# --gas-price-tolerance 1 accepts a gas price no higher than one.
+# --transaction-runtime vm-casper-v1 matches the Odra 2.8.1 contract runtime.
+# --session-entry-point call invokes the WASM installer export.
+# --install-upgrade marks this session target as an install/upgrade operation.
+# The four --session-arg values are Odra 2.8.1 installer configuration:
+# - package key name makes post-install lookup deterministic on the account;
+# - key override is disabled to protect an existing installation;
+# - upgradeability is enabled so the package can receive governed versions.
+# - is-upgrade is false because this transaction creates the first package version.
+# BuildDossierRegistry.init() itself takes no application arguments.
+printf 'Validating the complete Odra installer argument set locally before submission...\n'
+"${SCRIPT_DIR}/inspect-install-transaction.sh"
+
+RESPONSE="$(casper-client put-transaction session \
+  --node-address "$CASPER_TESTNET_RPC" \
+  --secret-key "$CASPER_SECRET_KEY_PATH" \
+  --wasm-path "$WASM_PATH" \
+  --chain-name "$CASPER_CHAIN_NAME" \
+  --pricing-mode classic \
+  --payment-amount "$CASPER_PAYMENT_AMOUNT" \
+  --standard-payment true \
+  --gas-price-tolerance 1 \
+  --transaction-runtime vm-casper-v1 \
+  --session-entry-point call \
+  --session-arg "odra_cfg_package_hash_key_name:string='BuildDossierRegistry'" \
+  --session-arg "odra_cfg_allow_key_override:bool='false'" \
+  --session-arg "odra_cfg_is_upgradable:bool='true'" \
+  --session-arg "odra_cfg_is_upgrade:bool='false'" \
+  --install-upgrade)"
+
+TRANSACTION_HASH="$(printf '%s' "$RESPONSE" | node -e '
+  let data = "";
+  process.stdin.on("data", chunk => data += chunk);
+  process.stdin.on("end", () => {
+    const parsed = JSON.parse(data);
+    const normalizeHash = value => {
+      if (typeof value === "string" && /^[0-9a-f]{64}$/i.test(value)) {
+        return value;
+      }
+      if (!value || typeof value !== "object") return "";
+      for (const variant of ["Version1", "Deploy"]) {
+        const found = normalizeHash(value[variant]);
+        if (found) return found;
+      }
+      for (const child of Object.values(value)) {
+        const found = normalizeHash(child);
+        if (found) return found;
+      }
+      return "";
+    };
+    const visit = value => {
+      if (!value || typeof value !== "object") return "";
+      for (const key of ["transaction_hash", "deploy_hash"]) {
+        const found = normalizeHash(value[key]);
+        if (found) return found;
+      }
+      for (const child of Object.values(value)) {
+        const found = visit(child);
+        if (found) return found;
+      }
+      return "";
+    };
+    process.stdout.write(visit(parsed));
+  });
+')"
+
+[[ -n "$TRANSACTION_HASH" ]] || { printf 'Submission returned no transaction hash. Raw response:\n%s\n' "$RESPONSE" >&2; exit 1; }
+
+# This exact path is the requested deployment record. It is initialized with
+# placeholders in git and becomes real local metadata only when this script is
+# deliberately run. Review it before committing; it never contains a key path.
+CASPER_INSTALL_TRANSACTION_HASH="$TRANSACTION_HASH" \
+CASPER_WASM_PATH="$WASM_PATH" \
+CASPER_METADATA_PATH="$METADATA_PATH" \
+node -e '
+  const fs = require("node:fs");
+  const record = {
+    schema: "uzoma.casper-deployment.v1",
+    network: "casper-testnet",
+    status: "submitted-unverified",
+    rpc: process.env.CASPER_TESTNET_RPC,
+    chainName: process.env.CASPER_CHAIN_NAME,
+    publicKey: process.env.CASPER_PUBLIC_KEY,
+    wasmPath: process.env.CASPER_WASM_PATH,
+    installTransactionHash: process.env.CASPER_INSTALL_TRANSACTION_HASH,
+    contractPackageHash: null,
+    contractHash: null,
+    submittedAt: new Date().toISOString(),
+    verifiedAt: null
+  };
+  fs.writeFileSync(process.env.CASPER_METADATA_PATH, `${JSON.stringify(record, null, 2)}\n`);
+'
+
+printf 'Submitted transaction hash: %s\n' "$TRANSACTION_HASH"
+printf 'Wrote submitted-unverified metadata: %s\n' "$METADATA_PATH"
+printf 'Next: run verify-testnet.sh.template %s\n' "$TRANSACTION_HASH"

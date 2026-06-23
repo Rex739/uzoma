@@ -1,0 +1,14 @@
+/target/
+/wasm/
+/deployments/*.json
+!/deployments/testnet.example.json
+/deployments/*.local.*
+/command-output/
+/*.out
+/.env
+/.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secret_key*

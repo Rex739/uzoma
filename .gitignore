@@ -3,3 +3,10 @@ node_modules/
 *.tsbuildinfo
 .DS_Store
 npm-debug.log*
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secret_key*

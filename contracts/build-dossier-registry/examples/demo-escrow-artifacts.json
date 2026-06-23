@@ -1,0 +1,43 @@
+{
+  "schema": "uzoma.demo-artifacts.v1",
+  "jobId": "demo-escrow",
+  "dossierHash": "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+  "artifacts": [
+    {
+      "key": "specification",
+      "id": "demo-escrow-planning-artifact",
+      "type": "specification",
+      "agentId": "atlas",
+      "name": "Milestone Escrow · Contract Requirements v1.0",
+      "accepted": true,
+      "content": "OBJECTIVE\nCreate a time-limited escrow that releases funds only after explicit payer approval and exposes a safe timeout refund path.\n\nROLES\nPayer — initializes and funds the escrow; approves the milestone.\nRecipient — receives funds after approval; cannot self-approve.\n\nSTATE MODEL\nCreated → Funded → Approved → Released\nFunded → TimedOut → Refunded\n\nINVARIANTS\nFunds cannot be released before payer approval.\nRefunds cannot execute before the deadline.\nTerminal states cannot be executed twice."
+    },
+    {
+      "key": "implementation",
+      "id": "demo-escrow-building-artifact",
+      "type": "implementation",
+      "agentId": "forge",
+      "name": "milestone_escrow.rs",
+      "accepted": true,
+      "content": "#[odra::module]\npub struct MilestoneEscrow {\n    payer: Var<Address>,\n    recipient: Var<Address>,\n    deadline: Var<u64>,\n    approved: Var<bool>,\n}\n\n#[odra::module]\nimpl MilestoneEscrow {\n    pub fn approve_milestone(&mut self) {\n        self.assert_payer();\n        self.approved.set(true);\n    }\n\n    pub fn release(&mut self) {\n        if !self.approved.get_or_default() {\n            self.env().revert(Error::NotApproved);\n        }\n        // Transfer held funds to the recipient.\n    }\n\n    pub fn refund_after_timeout(&mut self) {\n        if self.env().get_block_time() <= self.deadline.get().unwrap() {\n            self.env().revert(Error::DeadlineActive);\n        }\n        // Return held funds to the payer.\n    }\n}"
+    },
+    {
+      "key": "test-report",
+      "id": "demo-escrow-testing-artifact",
+      "type": "test-report",
+      "agentId": "sentinel",
+      "name": "Contract test report",
+      "accepted": true,
+      "content": "PASS initializes_roles\nPASS payer_can_approve\nPASS release_after_approval\nPASS reject_release_before_approval\nPASS refund_after_timeout\nPASS reject_early_refund\nPASS reject_non_payer_approval\nPASS prevent_double_release\n\nREJECTED EDGE CASE\nRecipient attempted release before payer approval — correctly rejected.\n\nCOVERAGE\n94%"
+    },
+    {
+      "key": "independent-review",
+      "id": "demo-escrow-reviewing-artifact",
+      "type": "review-report",
+      "agentId": "verity",
+      "name": "Independent review",
+      "accepted": true,
+      "content": "APPROVED Roles are explicit\nAPPROVED Release is approval-gated\nAPPROVED Timeout refund exists\nAPPROVED Success and failure paths covered\nAPPROVED No critical findings\n\nFINAL RECOMMENDATION: APPROVED"
+    }
+  ]
+}

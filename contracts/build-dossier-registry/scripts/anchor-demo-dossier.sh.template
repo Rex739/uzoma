@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+# Deliberate-use template. It computes evidence from the committed fixture, then
+# submits only when all values and UZOMA_CONFIRM_ANCHOR=YES are supplied.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_CALCULATOR="${SCRIPT_DIR}/compute-artifact-root.ts"
+REPO_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+: "${CASPER_TESTNET_RPC:?Set CASPER_TESTNET_RPC to the Testnet JSON-RPC URL}"
+: "${CASPER_CHAIN_NAME:?Set CASPER_CHAIN_NAME to the node-reported Testnet chain name}"
+: "${CASPER_PACKAGE_HASH:?Set CASPER_PACKAGE_HASH to the verified hash-... package identifier}"
+: "${CASPER_PUBLIC_KEY:?Set CASPER_PUBLIC_KEY to the anchoring account public key}"
+: "${CASPER_SECRET_KEY_PATH:?Set CASPER_SECRET_KEY_PATH to your local secret_key.pem}"
+: "${CASPER_ANCHOR_PAYMENT_AMOUNT:?Set CASPER_ANCHOR_PAYMENT_AMOUNT after deliberately reviewing the anchor-call cost}"
+
+printf 'WARNING: selected Testnet anchor payment amount is %s motes. This value must be independently reviewed, not guessed.\n' "$CASPER_ANCHOR_PAYMENT_AMOUNT"
+if [[ ! "$CASPER_ANCHOR_PAYMENT_AMOUNT" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'CASPER_ANCHOR_PAYMENT_AMOUNT must be a positive integer in motes.\n' >&2
+  exit 1
+fi
+if [[ "${UZOMA_CONFIRM_PAYMENT_AMOUNT:-}" != "YES" ]]; then
+  printf 'Refusing to submit. Set UZOMA_CONFIRM_PAYMENT_AMOUNT=YES only after deliberately reviewing the amount.\n' >&2
+  exit 1
+fi
+if [[ "${UZOMA_CONFIRM_ANCHOR:-}" != "YES" ]]; then
+  printf 'Refusing to submit. Set UZOMA_CONFIRM_ANCHOR=YES only after reviewing this template.\n' >&2
+  exit 1
+fi
+[[ -d "${REPO_DIR}/node_modules/tsx" ]] || { printf 'tsx runner missing; run npm install from the repository root.\n' >&2; exit 1; }
+
+printf 'Validating the unsigned anchor transaction locally before submission...\n'
+"${SCRIPT_DIR}/inspect-anchor-transaction.sh"
+
+[[ -f "$CASPER_SECRET_KEY_PATH" ]] || { printf 'Secret-key file not found.\n' >&2; exit 1; }
+
+EVIDENCE="$(cd "$REPO_DIR" && node --import tsx "$ROOT_CALCULATOR" --json)"
+IFS=$'\t' read -r JOB_ID DOSSIER_HASH ARTIFACT_ROOT_HASH ARTIFACT_COUNT <<< "$(printf '%s' "$EVIDENCE" | node -e '
+  let data = "";
+  process.stdin.on("data", chunk => data += chunk);
+  process.stdin.on("end", () => {
+    const evidence = JSON.parse(data);
+    process.stdout.write([
+      evidence.jobId,
+      evidence.dossierHash,
+      evidence.artifactRootHash,
+      evidence.artifactCount
+    ].join("\t"));
+  });
+')"
+[[ "$JOB_ID" == "demo-escrow" && "$ARTIFACT_COUNT" == "4" ]] || { printf 'Unexpected demo evidence.\n' >&2; exit 1; }
+
+# package calls a stored Odra package. Each --session-arg uses Casper client
+# NAME:TYPE='VALUE' syntax matching anchor_dossier(String,String,String,u32).
+RESPONSE="$(casper-client put-transaction package \
+  --node-address "$CASPER_TESTNET_RPC" \
+  --secret-key "$CASPER_SECRET_KEY_PATH" \
+  --contract-package-hash "$CASPER_PACKAGE_HASH" \
+  --chain-name "$CASPER_CHAIN_NAME" \
+  --pricing-mode classic \
+  --payment-amount "$CASPER_ANCHOR_PAYMENT_AMOUNT" \
+  --standard-payment true \
+  --gas-price-tolerance 1 \
+  --transaction-runtime vm-casper-v1 \
+  --session-entry-point anchor_dossier \
+  --session-arg "job_id:string='$JOB_ID'" \
+  --session-arg "dossier_hash:string='$DOSSIER_HASH'" \
+  --session-arg "artifact_root_hash:string='$ARTIFACT_ROOT_HASH'" \
+  --session-arg "artifact_count:u32='$ARTIFACT_COUNT'")"
+
+TRANSACTION_HASH="$(printf '%s' "$RESPONSE" | node -e '
+  let data = "";
+  process.stdin.on("data", chunk => data += chunk);
+  process.stdin.on("end", () => {
+    const parsed = JSON.parse(data);
+    const direct = parsed.result?.transaction_hash?.Version1;
+    if (typeof direct === "string" && /^[0-9a-f]{64}$/i.test(direct)) {
+      process.stdout.write(direct);
+      return;
+    }
+    const normalizeHash = value => {
+      if (typeof value === "string" && /^[0-9a-f]{64}$/i.test(value)) {
+        return value;
+      }
+      if (!value || typeof value !== "object") return "";
+      for (const variant of ["Version1", "Deploy"]) {
+        const found = normalizeHash(value[variant]);
+        if (found) return found;
+      }
+      for (const child of Object.values(value)) {
+        const found = normalizeHash(child);
+        if (found) return found;
+      }
+      return "";
+    };
+    const visit = value => {
+      if (!value || typeof value !== "object") return "";
+      for (const key of ["transaction_hash", "deploy_hash"]) {
+        const found = normalizeHash(value[key]);
+        if (found) return found;
+      }
+      for (const child of Object.values(value)) {
+        const found = visit(child);
+        if (found) return found;
+      }
+      return "";
+    };
+    process.stdout.write(visit(parsed));
+  });
+')"
+
+[[ -n "$TRANSACTION_HASH" ]] || { printf 'Submission returned no transaction hash. Raw response:\n%s\n' "$RESPONSE" >&2; exit 1; }
+printf 'Submitted transaction hash: %s\n' "$TRANSACTION_HASH"
+printf 'Verify with: %s/verify-testnet.sh.template %s\n' "$SCRIPT_DIR" "$TRANSACTION_HASH"
+
+# To anchor a real dossier later, create a reviewed fixture with the same
+# schema, update the calculator input deliberately, recompute the root, and
+# inspect every value before enabling the confirmation guard.
