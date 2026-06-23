@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays } from "lucide-react";
+import { ArrowUpRight, CalendarDays, RadioTower } from "lucide-react";
 import { useAppState } from "@/components/state-provider";
 import { Badge, EmptyState } from "@/components/ui";
+import { getCasperProofForJob } from "@/lib/casper/proof";
 import {
   deriveJobStatus,
   getJobProgress,
@@ -43,6 +44,12 @@ export function JobList({
         const meta = jobStatusMeta[status];
         const progress = getJobProgress(job);
         const accepted = status === "accepted";
+        const dossier = availableDossiers.find(
+          (item) => item.id === job.dossierId,
+        );
+        const casperAnchored =
+          dossier?.casperAnchorStatus === "confirmed" &&
+          Boolean(getCasperProofForJob(job.id));
 
         return (
           <Link
@@ -58,6 +65,12 @@ export function JobList({
                 </h3>
                 <Badge tone={meta.tone}>{meta.label}</Badge>
                 <Badge>{job.contractType}</Badge>
+                {casperAnchored && (
+                  <Badge className="gap-1.5" tone="green">
+                    <RadioTower className="size-3" />
+                    Casper Testnet anchored
+                  </Badge>
+                )}
               </div>
               <p className="mt-2 line-clamp-1 text-sm text-slate-500">
                 {job.request}

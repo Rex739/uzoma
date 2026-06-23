@@ -9,7 +9,13 @@ import {
   useState,
 } from "react";
 import { artifactFor, createStages, seedState } from "@/lib/mock-data";
-import type { AppState, BuildDossier, BuildJob } from "@/lib/types";
+import { demoCasperProof } from "@/lib/casper/proof";
+import type {
+  ActivityEvent,
+  AppState,
+  BuildDossier,
+  BuildJob,
+} from "@/lib/types";
 
 const KEY = "uzoma-demo-state-v2";
 type StateContext = {
@@ -28,6 +34,33 @@ type StateContext = {
 };
 const Context = createContext<StateContext | null>(null);
 
+function normalizeSeedAnchorEvent(event: ActivityEvent): ActivityEvent {
+  if (event.id !== "evt-seed-dossier") return event;
+  return {
+    ...event,
+    title: "Build Dossier anchored on Casper Testnet",
+    description:
+      "Milestone Escrow Contract accepted and anchored in the Casper Testnet Build Dossier Registry.",
+    timestamp: demoCasperProof.onChainRecord.recordedAtIso,
+  };
+}
+
+function normalizeStoredState(value: AppState): AppState {
+  return {
+    ...value,
+    events: value.events.map(normalizeSeedAnchorEvent),
+    dossiers: value.dossiers.map((dossier) => ({
+      ...dossier,
+      localWorkflowStatus: dossier.localWorkflowStatus ?? "accepted",
+      casperAnchorStatus:
+        dossier.id === "demo-escrow"
+          ? "confirmed"
+          : (dossier.casperAnchorStatus ?? "not-anchored"),
+      timeline: dossier.timeline.map(normalizeSeedAnchorEvent),
+    })),
+  };
+}
+
 export function StateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(seedState);
   const [hydrated, setHydrated] = useState(false);
@@ -44,7 +77,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(KEY);
-      if (stored) setState(JSON.parse(stored));
+      if (stored) setState(normalizeStoredState(JSON.parse(stored)));
     } catch {}
     setHydrated(true);
   }, []);
@@ -55,7 +88,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     const syncState = (event: StorageEvent) => {
       if (event.key !== KEY || !event.newValue) return;
       try {
-        setState(JSON.parse(event.newValue));
+        setState(normalizeStoredState(JSON.parse(event.newValue)));
       } catch {}
     };
     window.addEventListener("storage", syncState);
@@ -197,7 +230,8 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
           createdAt: now,
           dossierHash: `sha256:${`uzoma-dossier-${jobId}`.padEnd(64, "4fd18b").slice(0, 64)}`,
           finalApproval: "Approved",
-          proofStatus: "Integration Architecture — Not Yet Anchored",
+          localWorkflowStatus: "accepted",
+          casperAnchorStatus: "not-anchored",
           artifacts,
           timeline: [...s.events.filter((e) => e.jobId === jobId), event].sort(
             (a, b) => a.timestamp.localeCompare(b.timestamp),

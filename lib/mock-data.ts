@@ -6,6 +6,7 @@ import type {
   DeliveryArtifact,
   JobStage,
 } from "@/lib/types";
+import { demoCasperProof } from "@/lib/casper/proof";
 
 export const agents: AgentProfile[] = [
   {
@@ -165,7 +166,7 @@ const artifactBase = {
     type: "implementation",
     name: "milestone_escrow.rs",
     summary:
-      "Odra-style Rust implementation preview. This artifact is not deployed.",
+      "Milestone escrow implementation preview. The Build Dossier Registry—not this escrow artifact—is deployed and anchors this accepted delivery on Casper Testnet.",
     content: code,
   },
   testing: {
@@ -297,10 +298,10 @@ const seedEvents = [
     id: "evt-seed-dossier",
     jobId: defaultJob.id,
     type: "dossier.generated",
-    title: "Build Dossier generated",
+    title: "Build Dossier anchored on Casper Testnet",
     description:
-      "Milestone Escrow Contract accepted and recorded in the local dossier registry.",
-    timestamp: seedStageTimes.dossier,
+      "Milestone Escrow Contract accepted and anchored in the Casper Testnet Build Dossier Registry.",
+    timestamp: demoCasperProof.onChainRecord.recordedAtIso,
     agentId: "uzoma" as const,
   },
 ];
@@ -311,7 +312,8 @@ const defaultDossier: BuildDossier = {
   createdAt: seedStageTimes.dossier,
   dossierHash: `sha256:${"uzoma-dossier-demo-escrow".padEnd(64, "4fd18b").slice(0, 64)}`,
   finalApproval: "Approved",
-  proofStatus: "Integration Architecture — Not Yet Anchored",
+  localWorkflowStatus: "accepted",
+  casperAnchorStatus: "confirmed",
   artifacts: defaultJob.stages.flatMap((stage) =>
     stage.artifact ? [stage.artifact] : [],
   ),

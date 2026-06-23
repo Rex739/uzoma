@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
-  ExternalLink,
   FileCheck2,
   Fingerprint,
   Layers3,
@@ -13,9 +12,34 @@ import {
 } from "lucide-react";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
+import { getCasperProofForJob } from "@/lib/casper/proof";
 import { agents, artifactFor, criteria, defaultJob } from "@/lib/mock-data";
 import type { BuildDossier } from "@/lib/types";
-import { formatTime } from "@/lib/utils";
+import { formatTime, shortHash } from "@/lib/utils";
+
+function ProofRow({
+  label,
+  value,
+  display,
+}: {
+  label: string;
+  value: string;
+  display?: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 border-t border-gold/10 py-3 first:border-0 first:pt-0">
+      <p className="shrink-0 text-[10px] uppercase tracking-wider text-slate-600">
+        {label}
+      </p>
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="truncate font-mono text-[10px] text-slate-300">
+          {display ?? shortHash(value)}
+        </span>
+        <CopyButton value={value} label="Copy" />
+      </div>
+    </div>
+  );
+}
 
 function previewDossier(): BuildDossier {
   const at = "2026-06-20T10:21:00.000Z";
@@ -30,9 +54,10 @@ function previewDossier(): BuildDossier {
     jobId: "demo-escrow",
     createdAt: at,
     dossierHash:
-      "sha256:uzoma4fd18b7a20d8f0e63c95a318de4fd18b7a20d8f0e63c95a318de4",
+      "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
     finalApproval: "Approved",
-    proofStatus: "Integration Architecture — Not Yet Anchored",
+    localWorkflowStatus: "accepted",
+    casperAnchorStatus: "confirmed",
     artifacts,
     timeline: [
       {
@@ -113,6 +138,10 @@ export function DossierView({ id }: { id: string }) {
         description="Complete a job workflow to create its Build Dossier."
       />
     );
+  const casperProof =
+    dossier.casperAnchorStatus === "confirmed"
+      ? getCasperProofForJob(job.id)
+      : undefined;
   const exportJson = JSON.stringify(
     {
       schema: "uzoma.build-dossier.v1",
@@ -121,6 +150,7 @@ export function DossierView({ id }: { id: string }) {
         ...job,
         criteria: job.criteria.length ? job.criteria : criteria,
       },
+      casperProof,
     },
     null,
     2,
@@ -154,7 +184,7 @@ export function DossierView({ id }: { id: string }) {
             <div>
               <div className="flex items-center gap-3">
                 <Badge tone="gold">Verified delivery</Badge>
-                <Badge>Demo record</Badge>
+                {casperProof && <Badge tone="green">Testnet anchored</Badge>}
               </div>
               <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white">
                 {job.title}
@@ -361,32 +391,74 @@ export function DossierView({ id }: { id: string }) {
               ))}
             </div>
           </section>
-          <section className="rounded-xl border border-cyan/20 bg-cyan/5 p-5">
-            <div className="flex items-center gap-2">
-              <Fingerprint className="size-4 text-cyan" />
-              <p className="text-xs font-semibold text-cyan">
-                Integration Architecture — Not Yet Anchored
+          {casperProof ? (
+            <section className="rounded-xl border border-gold/30 bg-[linear-gradient(145deg,rgba(233,185,73,.09),rgba(20,184,166,.035))] p-5 shadow-[0_0_32px_rgba(233,185,73,.05)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-gold" />
+                  <p className="text-xs font-semibold text-white">
+                    Casper Testnet Anchor
+                  </p>
+                </div>
+                <Badge tone="green">Confirmed</Badge>
+              </div>
+              <p className="mt-3 text-xs leading-6 text-slate-400">
+                Anchored on Casper Testnet. Confirmed on-chain proof in the live
+                Testnet registry.
               </p>
-            </div>
-            <p className="mt-3 text-xs leading-6 text-slate-400">
-              Uzoma is ready to anchor the dossier hash, timestamp, and artifact
-              references through the Casper Build Dossier Registry.
-            </p>
-            <div className="mt-4 border-t border-cyan/10 pt-4">
-              <p className="text-[10px] uppercase tracking-wider text-slate-600">
-                Casper anchoring status
+              <div className="mt-4">
+                <ProofRow
+                  label="Network"
+                  value={casperProof.network}
+                  display={casperProof.network}
+                />
+                <ProofRow
+                  label="Registry"
+                  value={casperProof.registry}
+                  display={casperProof.registry}
+                />
+                <ProofRow
+                  label="Package hash"
+                  value={casperProof.packageHash}
+                />
+                <ProofRow
+                  label="Anchor transaction"
+                  value={casperProof.anchorTransactionHash}
+                />
+                <ProofRow
+                  label="Install transaction"
+                  value={casperProof.installTransactionHash}
+                />
+                <ProofRow
+                  label="Dossier hash"
+                  value={casperProof.onChainRecord.dossierHash}
+                />
+                <ProofRow
+                  label="Artifact root"
+                  value={casperProof.onChainRecord.artifactRootHash}
+                />
+                <ProofRow
+                  label="On-chain status"
+                  value="Accepted"
+                  display="Accepted"
+                />
+                <ProofRow
+                  label="Anchored"
+                  value={String(casperProof.block.height)}
+                  display="Jun 23, 11:43 AM · Block 8,274,002"
+                />
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-xl border border-line bg-white/[.015] p-5">
+              <p className="text-xs font-semibold text-slate-300">
+                Casper anchor not recorded
               </p>
-              <p className="mt-1 text-xs font-medium text-slate-300">
-                {dossier.proofStatus}
+              <p className="mt-2 text-xs leading-5 text-slate-600">
+                This local dossier has not been anchored automatically.
               </p>
-            </div>
-            <Link
-              href="/architecture"
-              className="mt-4 inline-flex items-center gap-1.5 text-xs text-cyan hover:underline"
-            >
-              View integration architecture <ExternalLink className="size-3" />
-            </Link>
-          </section>
+            </section>
+          )}
         </aside>
       </div>
     </>

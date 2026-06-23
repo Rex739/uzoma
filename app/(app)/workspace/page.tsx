@@ -97,7 +97,7 @@ export default function WorkspacePage() {
               Recent accepted deliveries
             </h2>
             <span className="font-mono text-[10px] text-gold/70">
-              VERIFIED LOCALLY
+              LOCAL DELIVERY → TESTNET PROOF
             </span>
           </div>
           <JobList jobs={acceptedJobs} dossiers={state.dossiers} compact />

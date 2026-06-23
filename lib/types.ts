@@ -71,7 +71,8 @@ export interface BuildDossier {
   createdAt: string;
   dossierHash: string;
   finalApproval: "Approved";
-  proofStatus: string;
+  localWorkflowStatus: "accepted";
+  casperAnchorStatus: "not-anchored" | "confirmed";
   artifacts: DeliveryArtifact[];
   timeline: ActivityEvent[];
   receipts: PaymentReceipt[];

@@ -1,0 +1,34 @@
+{
+  "schema": "uzoma.casper-proof.v1",
+  "verifiedAt": "2026-06-23T11:17:33Z",
+  "network": "Casper Testnet",
+  "chainName": "casper-test",
+  "registry": "BuildDossierRegistry",
+  "status": "confirmed",
+  "packageHash": "hash-c1e00c7784953c4a944f76adf4cd3ef87745c97e60ebcd5667737af425574f80",
+  "contractHash": "hash-26e40d703a212a3d9f8c5c34f46bff65b3c62f2f2a462bdf35404766d529be9c",
+  "installTransactionHash": "e1d83864185afa35e16fe87ddee3799822dfc1d59a92f03b9c5dae89b6e81ec0",
+  "anchorTransactionHash": "770848c2ac6d2ef68133e03b7e567f2dec4bb255f34b9c79128174e5e2527658",
+  "block": {
+    "hash": "8e50be961c1eb9daff401c988c82ef7a3305a3ee4810bd6cde518d76dacf162d",
+    "height": 8274002,
+    "stateRootHash": "8c9dffb0b703a9a399ab3df13833903ab867785fc0e798167fbc0809f8324bcc"
+  },
+  "event": {
+    "dictionary": "__events",
+    "index": 0,
+    "dictionaryKey": "dictionary-c8e52de3bb688d736229c67e0ac0e3718821dbbc792ba993bb10ced6dee7ff4f",
+    "name": "DossierAnchored"
+  },
+  "onChainRecord": {
+    "id": 1,
+    "creator": "account-hash-c75beba60041c4b602497302f4ed2e5ed11404e7b1123368b10f686cb3d2a9a3",
+    "jobId": "demo-escrow",
+    "dossierHash": "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+    "artifactRootHash": "sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4",
+    "artifactCount": 4,
+    "accepted": true,
+    "recordedAt": 1782211385789,
+    "recordedAtIso": "2026-06-23T10:43:05.789Z"
+  }
+}

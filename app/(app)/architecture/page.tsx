@@ -21,19 +21,19 @@ const stack = [
     name: "Lead Agent",
     sub: "Plans and routes specialist work",
     icon: Workflow,
-    status: "Deterministic demo",
+    status: "Local orchestration",
   },
   {
     name: "MCP-discovered Specialists",
     sub: "Atlas · Forge · Sentinel · Verity",
     icon: Bot,
-    status: "Integration architecture",
+    status: "Planned architecture",
   },
   {
     name: "x402 Delivery Receipts",
     sub: "Per-artifact delivery accounting",
     icon: CircleDollarSign,
-    status: "Integration architecture",
+    status: "Planned architecture",
   },
   {
     name: "Artifact Hashes",
@@ -43,35 +43,35 @@ const stack = [
   },
   {
     name: "Odra Dossier Registry",
-    sub: "Contract-based hash anchoring",
+    sub: "Live Build Dossier proof registry",
     icon: Database,
-    status: "Integration architecture",
+    status: "Deployed on Casper Testnet",
   },
   {
-    name: "Casper Event Stream",
-    sub: "Queryable on-chain dossier events",
+    name: "Casper Event Stream / Proof Layer",
+    sub: "Queryable accepted dossier evidence",
     icon: RadioTower,
-    status: "Integration architecture",
+    status: "Live Testnet Proof",
   },
 ];
 export default function ArchitecturePage() {
   return (
     <>
       <PageHeading
-        eyebrow="Future protocol stack"
+        eyebrow="System architecture"
         title="Casper integration architecture"
-        description="The local MVP proves the delivery model. These boundaries show exactly where MCP, x402, Odra, and Casper can extend it without overstating today’s implementation."
+        description="Uzoma runs a local multi-agent delivery workflow with live Casper Testnet dossier anchoring. MCP discovery and x402 settlement remain integration architecture."
       />
       <div className="rounded-xl border border-gold/20 bg-gold/5 p-4 text-xs leading-6 text-slate-400">
-        <strong className="text-gold">Demo boundary:</strong> No live payments,
-        wallet signing, deployed contracts, or on-chain transactions occur in
-        this build. Everything below labeled “integration architecture” is a
-        precise future interface.
+        <strong className="text-gold">Live boundary:</strong> The Odra registry
+        and demo dossier proof are live on Casper Testnet. Agent orchestration
+        remains local; MCP discovery, browser wallet signing, and x402
+        settlement are planned architecture.
       </div>
       <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stack.map(({ name, sub, icon: Icon, status }, i) => (
           <div
-            className={`surface min-h-44 p-5 ${status === "Implemented locally" ? "border-emerald/20" : status === "Deterministic demo" ? "border-cyan/20" : ""}`}
+            className={`surface min-h-44 p-5 ${status === "Implemented locally" ? "border-emerald/20" : status === "Local orchestration" ? "border-cyan/20" : status === "Deployed on Casper Testnet" || status === "Live Testnet Proof" ? "border-gold/25" : ""}`}
             key={name}
           >
             <div className="flex items-start justify-between gap-3">
@@ -90,9 +90,12 @@ export default function ArchitecturePage() {
               tone={
                 status === "Implemented locally"
                   ? "green"
-                  : status === "Deterministic demo"
+                  : status === "Local orchestration"
                     ? "cyan"
-                    : "slate"
+                    : status === "Deployed on Casper Testnet" ||
+                        status === "Live Testnet Proof"
+                      ? "gold"
+                      : "slate"
               }
             >
               {status}
@@ -121,9 +124,12 @@ export default function ArchitecturePage() {
           <p className="eyebrow">Proof layer</p>
           <h3 className="mt-3 text-sm font-semibold">Odra on Casper</h3>
           <p className="mt-2 text-xs leading-6 text-slate-500">
-            A registry contract can anchor dossier hashes and emit events
-            without placing source artifacts on-chain.
+            The live Testnet registry anchors dossier hashes and emits accepted
+            proof events without placing source artifacts on-chain.
           </p>
+          <Badge className="mt-4" tone="gold">
+            Live Testnet registry
+          </Badge>
         </div>
       </div>
     </>

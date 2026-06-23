@@ -15,6 +15,7 @@ import {
   ListChecks,
   LockKeyhole,
   Play,
+  RadioTower,
   ShieldCheck,
   TestTube2,
   UserRound,
@@ -23,6 +24,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
+import { getCasperProofForJob } from "@/lib/casper/proof";
 import {
   deriveJobStatus,
   getJobProgress,
@@ -292,6 +294,13 @@ export function JobDetail({ id }: { id: string }) {
     stage.artifact ? [stage.artifact] : [],
   );
   const activeAgent = agents.find((agent) => agent.id === active?.agentId);
+  const dossierRecord = state.dossiers.find(
+    (dossier) => dossier.id === job.dossierId,
+  );
+  const casperProof =
+    dossierRecord?.casperAnchorStatus === "confirmed"
+      ? getCasperProofForJob(job.id)
+      : undefined;
 
   function run() {
     setRunning(true);
@@ -320,6 +329,7 @@ export function JobDetail({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-3">
             <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
             <Badge>{job.priority} priority</Badge>
+            {casperProof && <Badge tone="green">Testnet anchored</Badge>}
             <span className="font-mono text-[10px] uppercase tracking-wider text-slate-600">
               {job.id}
             </span>
@@ -677,6 +687,27 @@ export function JobDetail({ id }: { id: string }) {
                 delivery artifacts recorded.
               </p>
             </section>
+          )}
+          {casperProof && job.dossierId && (
+            <Link
+              href={`/dossier/${job.dossierId}`}
+              className="group flex items-center gap-3 rounded-xl border border-gold/25 bg-gold/[.035] p-4 transition hover:border-gold/40 hover:bg-gold/[.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+            >
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-gold/25 bg-gold/[.08]">
+                <RadioTower className="size-4 text-gold" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-gold">
+                  Casper Testnet proof
+                </p>
+                <p className="mt-1 text-xs font-semibold text-white">
+                  Dossier anchored
+                </p>
+              </div>
+              <Badge className="ml-auto" tone="green">
+                Verified
+              </Badge>
+            </Link>
           )}
           <section className="surface p-5">
             <p className="eyebrow">Current action</p>
