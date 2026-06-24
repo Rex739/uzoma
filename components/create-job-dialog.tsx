@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Plus, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, Sparkles, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
@@ -201,8 +201,8 @@ export function CreateJobDialog() {
                 <X className="size-4" />
               </button>
             </div>
-            <form className="mt-7 space-y-5" onSubmit={submit}>
-              <label>
+            <form className="mt-7 space-y-6" onSubmit={submit}>
+              <label className="block">
                 <span className="label">Project title</span>
                 <input
                   name="title"
@@ -213,7 +213,7 @@ export function CreateJobDialog() {
                   required
                 />
               </label>
-              <label>
+              <label className="block">
                 <span className="label">Task description</span>
                 <textarea
                   name="description"
@@ -224,7 +224,7 @@ export function CreateJobDialog() {
                   required
                 />
               </label>
-              <label>
+              <label className="block">
                 <span className="label">Delivery context</span>
                 <textarea
                   name="context"
@@ -236,26 +236,42 @@ export function CreateJobDialog() {
                 />
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
-                <label>
+                <label className="block">
                   <span className="label">Contract type</span>
-                  <select name="type" className="input" defaultValue="Escrow">
-                    <option>Escrow</option>
-                    <option>Vesting</option>
-                    <option>Registry</option>
-                    <option>Custom</option>
-                  </select>
+                  <span className="relative block">
+                    <select
+                      name="type"
+                      className="input h-10 appearance-none pr-10"
+                      defaultValue="Escrow"
+                    >
+                      <option>Escrow</option>
+                      <option>Vesting</option>
+                      <option>Registry</option>
+                      <option>Custom</option>
+                    </select>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-600"
+                    />
+                  </span>
                 </label>
-                <label>
+                <label className="block">
                   <span className="label">Priority</span>
-                  <select
-                    name="priority"
-                    className="input"
-                    defaultValue="Standard"
-                  >
-                    <option>Standard</option>
-                    <option>High</option>
-                    <option>Critical</option>
-                  </select>
+                  <span className="relative block">
+                    <select
+                      name="priority"
+                      className="input h-10 appearance-none pr-10"
+                      defaultValue="Standard"
+                    >
+                      <option>Standard</option>
+                      <option>High</option>
+                      <option>Critical</option>
+                    </select>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-600"
+                    />
+                  </span>
                 </label>
               </div>
 
