@@ -27,6 +27,24 @@ body {
   .eyebrow {
     @apply font-mono text-[10px] font-semibold uppercase tracking-[.18em] text-slate-500;
   }
+  .display-hero {
+    @apply font-display text-white;
+    font-size: clamp(2.75rem, 6vw, 5.5rem);
+    line-height: 0.98;
+    letter-spacing: -0.045em;
+  }
+  .display-section {
+    @apply font-display text-white;
+    font-size: clamp(2rem, calc(2.6vw + 1.3rem), 3.75rem);
+    line-height: 1.02;
+    letter-spacing: -0.038em;
+  }
+  .display-workflow {
+    @apply font-display text-white;
+    font-size: clamp(2.25rem, calc(2vw + 1.4rem), 3rem);
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+  }
   .label {
     @apply mb-2 block text-xs font-medium text-slate-300;
   }
@@ -41,6 +59,18 @@ body {
   }
   .stage-enter {
     animation: stage-enter 320ms ease-out both;
+  }
+  .workflow-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .workflow-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 1024px) {
+    .workflow-bleed-right {
+      width: calc(100% + 1.25rem + max(0px, (100vw - 80rem) / 2));
+    }
   }
 }
 

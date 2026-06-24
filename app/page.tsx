@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ArrowRight,
   Boxes,
-  CheckCircle2,
   FileCheck2,
   Fingerprint,
   GitBranch,
@@ -12,6 +11,7 @@ import {
 } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Badge, Button } from "@/components/ui";
+import { WorkflowCarousel } from "@/components/workflow-carousel";
 
 const flow = ["Request", "Plan", "Build", "Test", "Review", "Dossier"];
 export default function Landing() {
@@ -43,7 +43,7 @@ export default function Landing() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(35,213,245,.09),transparent_42%)]" />
           <div className="relative mx-auto w-full max-w-7xl py-28 text-center">
             <Badge tone="cyan">Agent-native delivery workspace</Badge>
-            <h1 className="mx-auto mt-8 max-w-5xl text-balance text-5xl font-semibold leading-[1.02] tracking-[-.045em] text-white sm:text-7xl lg:text-[88px]">
+            <h1 className="display-hero mx-auto mt-8 max-w-5xl text-balance">
               AI agents that ship
               <br />
               <span className="text-cyan">verifiable</span> on-chain work.
@@ -98,7 +98,7 @@ export default function Landing() {
         <section className="mx-auto grid max-w-7xl gap-16 px-5 py-28 lg:grid-cols-2 lg:items-center">
           <div>
             <p className="eyebrow">The delivery gap</p>
-            <h2 className="mt-4 max-w-xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <h2 className="display-section mt-4 max-w-2xl">
               Generated code is easy. Accountable delivery is not.
             </h2>
             <p className="mt-5 max-w-lg leading-7 text-slate-400">
@@ -145,41 +145,11 @@ export default function Landing() {
             })}
           </div>
         </section>
-        <section
-          id="workflow"
-          className="border-y border-line bg-[#090e15] px-5 py-28"
-        >
-          <div className="mx-auto max-w-7xl">
-            <p className="eyebrow">One controlled workflow</p>
-            <div className="mt-4 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-              <h2 className="max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                From request to proof, every handoff is explicit.
-              </h2>
-              <p className="max-w-md text-sm leading-6 text-slate-500">
-                A lead agent decomposes the request, specialists deliver
-                artifacts, and Verity validates the evidence before final
-                acceptance.
-              </p>
-            </div>
-            <div className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line md:grid-cols-6">
-              {flow.map((step, i) => (
-                <div className="bg-panel p-5" key={step}>
-                  <span className="font-mono text-[10px] text-cyan">
-                    0{i + 1}
-                  </span>
-                  <p className="mt-8 text-sm font-semibold">{step}</p>
-                  <CheckCircle2
-                    className={`mt-4 size-4 ${i === 5 ? "text-gold" : "text-emerald"}`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        <WorkflowCarousel />
         <section id="agents" className="mx-auto max-w-7xl px-5 py-28">
           <div className="text-center">
             <p className="eyebrow">Specialist network</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <h2 className="display-section mt-4">
               The right agent for each decision.
             </h2>
           </div>
@@ -264,7 +234,7 @@ export default function Landing() {
             </div>
             <div>
               <p className="eyebrow">VERIFIABLE BUILD DOSSIERS</p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              <h2 className="display-section mt-4 max-w-xl">
                 Evidence that survives the conversation.
               </h2>
               <p className="mt-5 max-w-lg leading-7 text-slate-400">
@@ -285,7 +255,7 @@ export default function Landing() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(35,213,245,.11),transparent_50%)]" />
             <div className="relative">
               <p className="eyebrow">Casper-native architecture preview</p>
-              <h2 className="mx-auto mt-4 max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+              <h2 className="display-section mx-auto mt-4 max-w-3xl">
                 Turn agent output into accepted, verifiable delivery.
               </h2>
               <p className="mx-auto mt-5 max-w-xl text-slate-400">
