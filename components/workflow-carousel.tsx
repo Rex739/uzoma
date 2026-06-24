@@ -2,6 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, FileCheck2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RevealOnScroll } from "@/components/landing-motion";
 import { cn } from "@/lib/utils";
 
 type WorkflowStage = {
@@ -146,7 +147,10 @@ export function WorkflowCarousel() {
       aria-labelledby="workflow-heading"
       className="overflow-hidden border-y border-line bg-[#090e15] px-5 py-24 sm:py-28"
     >
-      <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,0.6fr)] lg:items-center lg:gap-16">
+      <RevealOnScroll
+        amount={0.15}
+        className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,0.6fr)] lg:items-center lg:gap-16"
+      >
         <div className="lg:py-8">
           <p className="eyebrow">One controlled workflow</p>
           <h2 id="workflow-heading" className="display-workflow mt-5 max-w-xl">
@@ -298,7 +302,7 @@ export function WorkflowCarousel() {
             Drag or use arrow keys to inspect the delivery record
           </p>
         </div>
-      </div>
+      </RevealOnScroll>
     </section>
   );
 }

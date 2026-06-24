@@ -26,13 +26,19 @@ const links = [
   { href: "/architecture", label: "Architecture", icon: GitBranch },
 ];
 
-function Sidebar({ close }: { close?: () => void }) {
+function Sidebar({
+  close,
+  compactBrand = false,
+}: {
+  close?: () => void;
+  compactBrand?: boolean;
+}) {
   const path = usePathname();
   const { reset } = useAppState();
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-line px-5 py-[18px]">
-        <Brand />
+        <Brand compact={compactBrand} />
       </div>
       <nav
         className="flex-1 space-y-1 px-3 py-5"
@@ -113,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <X className="size-5" />
             </button>
-            <Sidebar close={() => setOpen(false)} />
+            <Sidebar close={() => setOpen(false)} compactBrand />
           </aside>
         </div>
       )}
