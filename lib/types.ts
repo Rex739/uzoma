@@ -1,3 +1,5 @@
+import type { AgentMode, LeadAgentPlan } from "@/lib/agent/schema";
+
 export type StageStatus = "queued" | "active" | "completed" | "blocked";
 export type AgentId = "atlas" | "forge" | "sentinel" | "verity" | "uzoma";
 
@@ -45,6 +47,9 @@ export interface BuildJob {
   priority: "Standard" | "High" | "Critical";
   status: string;
   createdAt: string;
+  deliveryContext?: string;
+  agentMode: AgentMode;
+  leadAgentPlan?: LeadAgentPlan;
   criteria: AcceptanceCriterion[];
   stages: JobStage[];
   dossierId?: string;

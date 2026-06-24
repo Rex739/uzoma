@@ -257,6 +257,7 @@ export const defaultJob: BuildJob = {
   priority: "High",
   status: "Accepted",
   createdAt: seedStageTimes.requested,
+  agentMode: "deterministic_demo",
   dossierId: "demo-escrow",
   criteria: criteria.map((text, i) => ({
     id: `criterion-${i + 1}`,

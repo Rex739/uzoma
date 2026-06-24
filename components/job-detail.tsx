@@ -31,7 +31,12 @@ import {
   jobStatusMeta,
 } from "@/lib/jobs/status";
 import { agents } from "@/lib/mock-data";
-import type { DeliveryArtifact, JobStage, StageStatus } from "@/lib/types";
+import type {
+  BuildJob,
+  DeliveryArtifact,
+  JobStage,
+  StageStatus,
+} from "@/lib/types";
 import { cn, shortHash } from "@/lib/utils";
 
 const stageIcons = {
@@ -270,6 +275,139 @@ function ArtifactPreview({ artifact }: { artifact: DeliveryArtifact }) {
   return <ReviewPreview artifact={artifact} />;
 }
 
+export function LeadAgentDecisionCard({ job }: { job: BuildJob }) {
+  const plan = job.leadAgentPlan;
+  if (!plan) return null;
+  const live = job.agentMode === "live";
+  const assuranceLevel =
+    plan.risk_level.charAt(0).toUpperCase() + plan.risk_level.slice(1);
+  const assuranceRationale =
+    typeof plan.risk_rationale === "string" ? plan.risk_rationale : undefined;
+  const assuranceRequirements = Array.isArray(plan.risk_controls)
+    ? plan.risk_controls
+    : [];
+  return (
+    <section className="surface overflow-hidden">
+      <div className="border-b border-line px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="eyebrow">
+              {live ? "Live agent decision" : "Deterministic demo plan"}
+            </p>
+            <h2 className="mt-2 text-sm font-semibold text-white">
+              Delivery plan generated
+            </h2>
+          </div>
+          <Badge tone={live ? "cyan" : "slate"}>
+            {live ? "Live agent plan" : "Local orchestration"}
+          </Badge>
+        </div>
+        <p className="mt-3 max-w-3xl text-xs leading-5 text-slate-400">
+          {plan.summary}
+        </p>
+      </div>
+      {assuranceRationale && assuranceRequirements.length > 0 && (
+        <div className="border-b border-line px-5 py-5 sm:px-6">
+          <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
+            <div>
+              <p className="eyebrow">Assurance level</p>
+              <p className="mt-2 text-lg font-semibold text-gold">
+                {assuranceLevel}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Assessment of the controls, review, and verification required
+                before delivery can be accepted.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <p className="eyebrow">Assurance rationale</p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {assuranceRationale}
+                </p>
+              </div>
+              <div>
+                <p className="eyebrow">Assurance requirements</p>
+                <div className="mt-2 space-y-2">
+                  {assuranceRequirements.map((requirement) => (
+                    <p
+                      className="flex gap-2 text-xs leading-5 text-slate-400"
+                      key={requirement}
+                    >
+                      <Check className="mt-1 size-3 shrink-0 text-emerald" />
+                      {requirement}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="grid gap-px bg-line sm:grid-cols-3">
+        <div className="bg-panel p-4 sm:col-span-3">
+          <p className="eyebrow">Decision rationale</p>
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {plan.decision_rationale}
+          </p>
+        </div>
+        <div className="bg-panel p-4">
+          <p className="eyebrow">DeFi relevance</p>
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {plan.defi_relevance}
+          </p>
+        </div>
+        <div className="bg-panel p-4">
+          <p className="eyebrow">RWA relevance</p>
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {plan.rwa_relevance}
+          </p>
+        </div>
+        <div className="bg-panel p-4">
+          <p className="eyebrow">Casper anchor policy</p>
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {plan.casper_anchor_policy}
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-px border-t border-line bg-line sm:grid-cols-2">
+        {plan.specialist_assignments.map((assignment) => (
+          <div
+            className="bg-panel px-5 py-4 sm:px-6"
+            key={assignment.specialist}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-white">
+                {assignment.specialist}
+              </p>
+              <span className="font-mono text-[9px] uppercase text-cyan">
+                {assignment.expected_output}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {assignment.objective}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-line px-5 py-4 sm:px-6">
+        <p className="eyebrow">Independent review requirements</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {plan.review_requirements.map((requirement) => (
+            <p
+              className="flex gap-2 text-xs leading-5 text-slate-400"
+              key={requirement}
+            >
+              <Check className="mt-1 size-3 shrink-0 text-emerald" />
+              {requirement}
+            </p>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function JobDetail({ id }: { id: string }) {
   const { state, hydrated, runNextStage, createDossier } = useAppState();
   const router = useRouter();
@@ -329,6 +467,12 @@ export function JobDetail({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-3">
             <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
             <Badge>{job.priority} priority</Badge>
+            {job.agentMode === "live" && (
+              <Badge tone="cyan">Live agent planned</Badge>
+            )}
+            {job.agentMode === "deterministic_demo" && job.leadAgentPlan && (
+              <Badge>Deterministic demo plan</Badge>
+            )}
             {casperProof && <Badge tone="green">Testnet anchored</Badge>}
             <span className="font-mono text-[10px] uppercase tracking-wider text-slate-600">
               {job.id}
@@ -338,7 +482,10 @@ export function JobDetail({ id }: { id: string }) {
             {job.title}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            {job.contractType} contract delivery · local deterministic workflow
+            {job.contractType} contract delivery ·{" "}
+            {job.agentMode === "live"
+              ? "live server-side planning"
+              : "local deterministic workflow"}
           </p>
         </div>
         <div className="flex shrink-0">
@@ -478,39 +625,45 @@ export function JobDetail({ id }: { id: string }) {
               {job.request}
             </p>
           </section>
-          <section className="surface overflow-hidden">
-            <div className="border-b border-line px-5 py-4 sm:px-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-white">
-                  Lead agent orchestration
-                </h2>
-                <Badge tone="cyan">Decision log</Badge>
-              </div>
-              <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-                Escrow delivery requires explicit authority rules, timeout
-                protection, adversarial testing, and independent evidence review
-                before acceptance.
-              </p>
-            </div>
-            <div className="grid gap-px bg-line sm:grid-cols-2">
-              {[
-                "Workflow selected: milestone escrow delivery",
-                "Planning assigned to Atlas: requirements and acceptance criteria",
-                "Implementation assigned to Forge: Odra-style contract artifact",
-                "Validation split between Sentinel and Verity for independent testing and acceptance review",
-              ].map((decision, index) => (
-                <div
-                  className="flex gap-3 bg-panel px-5 py-4 sm:px-6"
-                  key={decision}
-                >
-                  <span className="grid size-6 shrink-0 place-items-center rounded-full border border-cyan/20 bg-cyan/5 font-mono text-[9px] text-cyan">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <p className="text-xs leading-5 text-slate-300">{decision}</p>
+          {job.leadAgentPlan ? (
+            <LeadAgentDecisionCard job={job} />
+          ) : (
+            <section className="surface overflow-hidden">
+              <div className="border-b border-line px-5 py-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-white">
+                    Lead agent orchestration
+                  </h2>
+                  <Badge tone="cyan">Local orchestration</Badge>
                 </div>
-              ))}
-            </div>
-          </section>
+                <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+                  Escrow delivery requires explicit authority rules, timeout
+                  protection, adversarial testing, and independent evidence
+                  review before acceptance.
+                </p>
+              </div>
+              <div className="grid gap-px bg-line sm:grid-cols-2">
+                {[
+                  "Workflow selected: milestone escrow delivery",
+                  "Planning assigned to Atlas: requirements and acceptance criteria",
+                  "Implementation assigned to Forge: Odra-style contract artifact",
+                  "Validation split between Sentinel and Verity for independent testing and acceptance review",
+                ].map((decision, index) => (
+                  <div
+                    className="flex gap-3 bg-panel px-5 py-4 sm:px-6"
+                    key={decision}
+                  >
+                    <span className="grid size-6 shrink-0 place-items-center rounded-full border border-cyan/20 bg-cyan/5 font-mono text-[9px] text-cyan">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <p className="text-xs leading-5 text-slate-300">
+                      {decision}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <section>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold">

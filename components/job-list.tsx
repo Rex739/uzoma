@@ -65,6 +65,9 @@ export function JobList({
                 </h3>
                 <Badge tone={meta.tone}>{meta.label}</Badge>
                 <Badge>{job.contractType}</Badge>
+                {job.agentMode === "live" && (
+                  <Badge tone="cyan">Live agent planned</Badge>
+                )}
                 {casperAnchored && (
                   <Badge className="gap-1.5" tone="green">
                     <RadioTower className="size-3" />

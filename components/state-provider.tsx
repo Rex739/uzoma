@@ -8,27 +8,20 @@ import {
   useMemo,
   useState,
 } from "react";
-import { artifactFor, createStages, seedState } from "@/lib/mock-data";
+import { artifactFor, seedState } from "@/lib/mock-data";
 import { demoCasperProof } from "@/lib/casper/proof";
-import type {
-  ActivityEvent,
-  AppState,
-  BuildDossier,
-  BuildJob,
-} from "@/lib/types";
+import {
+  createPlannedJob,
+  type PlannedJobInput,
+} from "@/lib/jobs/create-planned-job";
+import type { ActivityEvent, AppState, BuildDossier } from "@/lib/types";
 
 const KEY = "uzoma-demo-state-v2";
 type StateContext = {
   state: AppState;
   hydrated: boolean;
   reset: () => void;
-  createJob: (input: {
-    title: string;
-    request: string;
-    contractType: string;
-    priority: BuildJob["priority"];
-    criteria: string[];
-  }) => string;
+  createJob: (input: PlannedJobInput) => string;
   runNextStage: (jobId: string) => void;
   createDossier: (jobId: string) => string | undefined;
 };
@@ -48,6 +41,10 @@ function normalizeSeedAnchorEvent(event: ActivityEvent): ActivityEvent {
 function normalizeStoredState(value: AppState): AppState {
   return {
     ...value,
+    jobs: value.jobs.map((job) => ({
+      ...job,
+      agentMode: job.agentMode ?? "deterministic_demo",
+    })),
     events: value.events.map(normalizeSeedAnchorEvent),
     dossiers: value.dossiers.map((dossier) => ({
       ...dossier,
@@ -99,32 +96,14 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     [updateState],
   );
   const createJob = useCallback(
-    (input: {
-      title: string;
-      request: string;
-      contractType: string;
-      priority: BuildJob["priority"];
-      criteria: string[];
-    }) => {
+    (input: PlannedJobInput) => {
       const id = `${input.title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 32)}-${Date.now().toString(36).slice(-4)}`;
       const now = new Date().toISOString();
-      const job: BuildJob = {
-        id,
-        title: input.title,
-        request: input.request,
-        contractType: input.contractType,
-        priority: input.priority,
-        status: "Planning",
-        createdAt: now,
-        criteria: input.criteria
-          .filter(Boolean)
-          .map((text, i) => ({ id: `${id}-criterion-${i}`, text, met: false })),
-        stages: createStages(1),
-      };
+      const job = createPlannedJob(input, id, now);
       updateState((s) => ({
         ...s,
         jobs: [job, ...s.jobs],
