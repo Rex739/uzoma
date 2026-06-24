@@ -15,7 +15,7 @@ Generating code is easy. Accountable delivery is not.
 
 ## The Uzoma solution
 
-Uzoma makes each handoff explicit. A lead agent decomposes a request, specialist agents produce bounded artifacts, an independent reviewer validates the evidence, and the accepted result becomes a portable Build Dossier.
+Uzoma makes each handoff explicit. A constrained server-side Lead Agent can use the OpenAI Responses API to turn a new delivery brief into validated acceptance criteria, specialist assignments, review requirements, and an explicit Casper anchoring policy. Specialist agents then produce bounded artifacts, an independent reviewer validates the evidence, and the accepted result becomes a portable Build Dossier.
 
 The seeded workflow produces:
 
@@ -40,6 +40,38 @@ Request → Plan → Build → Test → Review → Dossier
 
 These specialist profiles are local delivery services in the current build. MCP discovery remains integration architecture; the app does not claim a live MCP connection.
 
+### Server-side Lead Agent
+
+The live planner uses the official OpenAI Node SDK, the Responses API, and a strict Zod-backed structured output. The API key is read only inside the Node.js route; it is never returned to the browser, persisted in local workflow state, or written to logs.
+
+Copy the variable names from `.env.example` into your own ignored local environment or hosting-provider secret store:
+
+```bash
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-5-mini
+```
+
+Both values are required. If `OPENAI_MODEL` is missing, the server returns a clear configuration error rather than selecting a hardcoded model. OpenAI API usage can incur model charges, so configure account limits appropriate to the demo. Never commit the key or expose it through a `NEXT_PUBLIC_` variable.
+
+The Lead Agent model is configured server-side through OPENAI_MODEL. Model names and provider credentials are not shown in the primary product UI.
+
+### Lead Agent troubleshooting
+
+Model availability and feature support depend on the API project and credentials configured on the server. Uzoma does not assume that a model string is accessible merely because it is present in `OPENAI_MODEL`, and it does not silently select a fallback model. After changing the model, fully restart `npm run dev` and submit one request through the Create Build Request UI.
+
+The route converts provider metadata into safe categories for unavailable or unsupported models, invalid credentials, insufficient quota, rate limits, malformed structured output, temporary provider outages, and unknown provider failures. Public errors never include raw provider messages, request IDs, credentials, project identifiers, or response bodies. Use only the sanitized server category when troubleshooting.
+
+When the key is missing or the provider fails, Uzoma does not silently impersonate a live response. The create-request dialog explains the failure and offers a separate, explicit **Use deterministic demo plan** action. Those jobs are stored as `agentMode: deterministic_demo`; successful API plans are stored as `agentMode: live`.
+
+Lead Agent planning never deploys a contract, signs a transaction, sends a payment, or anchors a dossier. Casper anchoring remains a separate operator-controlled action after local acceptance.
+
+Requester priority and Lead Agent assurance are deliberately separate:
+
+- **Requester priority** (`Standard`, `High`, or `Critical`) is the urgency and delivery importance selected by the requester. The Lead Agent never changes it.
+- **Assurance level** (`Low`, `Medium`, or `High`) is the Lead Agent’s independent assessment of the controls, review, and verification required before acceptance.
+
+High assurance does not mean a request is invalid or unsafe to build. It means stronger authority checks, evidence requirements, failure-path testing, and independent review should be satisfied before the delivery is accepted. A job can therefore correctly show both **High priority** and **Assurance level: High**.
+
 ## DeFi and RWA relevance
 
 The default Milestone Escrow request models a common DeFi and real-world-asset delivery problem: funds or value should move only after explicit authority checks, accepted milestones, timeout protection, adversarial testing, and independent review.
@@ -48,17 +80,17 @@ Uzoma does not execute escrow payments. It demonstrates the delivery and proof l
 
 ## Architecture
 
-| Layer | Current status |
-| --- | --- |
-| Multi-agent delivery workflow | Implemented locally |
-| Artifact generation and acceptance | Implemented locally |
-| Deterministic Build Dossier | Implemented locally |
-| Odra `BuildDossierRegistry` | Deployed on Casper Testnet |
-| Demo dossier proof event | Confirmed on Casper Testnet |
-| MCP specialist discovery | Integration architecture |
-| x402 settlement | Integration architecture; mock receipts only |
-| Browser wallet signing | Not implemented |
-| Automatic anchoring of future jobs | Not implemented |
+| Layer                              | Current status                               |
+| ---------------------------------- | -------------------------------------------- |
+| Multi-agent delivery workflow      | Implemented locally                          |
+| Artifact generation and acceptance | Implemented locally                          |
+| Deterministic Build Dossier        | Implemented locally                          |
+| Odra `BuildDossierRegistry`        | Deployed on Casper Testnet                   |
+| Demo dossier proof event           | Confirmed on Casper Testnet                  |
+| MCP specialist discovery           | Integration architecture                     |
+| x402 settlement                    | Integration architecture; mock receipts only |
+| Browser wallet signing             | Not implemented                              |
+| Automatic anchoring of future jobs | Not implemented                              |
 
 The browser contains no private key handling, signing, contract-write, payment, or automatic-anchoring logic. Local workflow status and Casper anchor status are modeled separately.
 
@@ -68,18 +100,18 @@ The public proof below is intentionally committed in [`lib/casper/demo-proof.jso
 
 **Status: Anchored on Casper Testnet — Confirmed on-chain proof in the live Testnet registry.**
 
-| Proof identifier | Value |
-| --- | --- |
-| Network | Casper Testnet (`casper-test`) |
-| Registry | `BuildDossierRegistry` |
-| Package hash | `hash-c1e00c7784953c4a944f76adf4cd3ef87745c97e60ebcd5667737af425574f80` |
-| Install transaction | `e1d83864185afa35e16fe87ddee3799822dfc1d59a92f03b9c5dae89b6e81ec0` |
-| Anchor transaction | `770848c2ac6d2ef68133e03b7e567f2dec4bb255f34b9c79128174e5e2527658` |
-| Dossier hash | `sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd` |
-| Artifact root | `sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4` |
-| Accepted artifacts | `4` |
-| Anchor block | `8274002` |
-| Recorded at | `2026-06-23T10:43:05.789Z` |
+| Proof identifier    | Value                                                                     |
+| ------------------- | ------------------------------------------------------------------------- |
+| Network             | Casper Testnet (`casper-test`)                                            |
+| Registry            | `BuildDossierRegistry`                                                    |
+| Package hash        | `hash-c1e00c7784953c4a944f76adf4cd3ef87745c97e60ebcd5667737af425574f80`   |
+| Install transaction | `e1d83864185afa35e16fe87ddee3799822dfc1d59a92f03b9c5dae89b6e81ec0`        |
+| Anchor transaction  | `770848c2ac6d2ef68133e03b7e567f2dec4bb255f34b9c79128174e5e2527658`        |
+| Dossier hash        | `sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd` |
+| Artifact root       | `sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4` |
+| Accepted artifacts  | `4`                                                                       |
+| Anchor block        | `8274002`                                                                 |
+| Recorded at         | `2026-06-23T10:43:05.789Z`                                                |
 
 The confirmed Casper Event Standard record contains dossier ID `1`, the creator account hash, job ID, dossier hash, artifact root, artifact count, `accepted = true`, and the recorded block time.
 
@@ -98,7 +130,7 @@ The script uses only read-only Casper RPC commands. It resolves the package and 
 
 Prerequisites:
 
-- Node.js 20 or newer;
+- Node.js 20.19+, 22.13+, or 24+;
 - npm;
 - Rust nightly with `wasm32-unknown-unknown` for contract work;
 - `cargo-odra 0.1.7` and Odra `2.8.1` for the contract build;
@@ -114,6 +146,7 @@ Open [http://localhost:3000](http://localhost:3000).
 Frontend quality commands:
 
 ```bash
+npm test
 npm run lint
 npm run typecheck
 npm run build
@@ -154,7 +187,8 @@ The optimized WASM is reproducible build output and is intentionally ignored. Co
 
 ## Honest limitations
 
-- The specialist workflow and generated delivery artifacts are deterministic local application state.
+- Specialist execution and generated delivery artifacts remain deterministic local application state. New request planning can be live through the server-side OpenAI integration when configured.
+- The seeded Milestone Escrow job remains a labeled local orchestration record and does not claim that its plan was generated by OpenAI.
 - Only the seeded `demo-escrow` Build Dossier is confirmed on Casper Testnet.
 - Newly created jobs are not automatically anchored.
 - MCP discovery is not active.
