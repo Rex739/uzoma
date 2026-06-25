@@ -230,9 +230,9 @@ export default function Landing() {
             {[
               [
                 Boxes,
-                "Atlas",
+                "Axiom",
                 "Specification",
-                "Turns product intent into scoped acceptance criteria.",
+                "Defines requirements, workflow states, roles, invariants, acceptance criteria, and implementation boundaries.",
               ],
               [
                 TerminalSquare,

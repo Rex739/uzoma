@@ -41,6 +41,14 @@ test("accepts a complete strict Lead Agent plan", () => {
   assert.equal(plan.acceptance_criteria.length, 6);
 });
 
+test("uses the canonical specialist sequence", () => {
+  const plan = generateDeterministicPlan(request);
+  assert.deepEqual(
+    plan.specialist_assignments.map((assignment) => assignment.specialist),
+    ["Axiom", "Forge", "Sentinel", "Verity"],
+  );
+});
+
 test("rejects invalid model output", () => {
   const plan = generateDeterministicPlan(request);
   assert.throws(() =>

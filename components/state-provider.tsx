@@ -14,7 +14,12 @@ import {
   createPlannedJob,
   type PlannedJobInput,
 } from "@/lib/jobs/create-planned-job";
-import type { ActivityEvent, AppState, BuildDossier } from "@/lib/types";
+import type {
+  ActivityEvent,
+  AgentId,
+  AppState,
+  BuildDossier,
+} from "@/lib/types";
 
 const KEY = "uzoma-demo-state-v2";
 type StateContext = {
@@ -38,14 +43,47 @@ function normalizeSeedAnchorEvent(event: ActivityEvent): ActivityEvent {
   };
 }
 
+function normalizeAgentId(id: unknown): AgentId {
+  return id === "atlas" ? "axiom" : (id as AgentId);
+}
+
+function normalizeSpecialistName(name: unknown) {
+  return name === "Atlas" ? "Axiom" : name;
+}
+
 function normalizeStoredState(value: AppState): AppState {
   return {
     ...value,
     jobs: value.jobs.map((job) => ({
       ...job,
       agentMode: job.agentMode ?? "deterministic_demo",
+      leadAgentPlan: job.leadAgentPlan
+        ? {
+            ...job.leadAgentPlan,
+            specialist_assignments:
+              job.leadAgentPlan.specialist_assignments.map((assignment) => ({
+                ...assignment,
+                specialist: normalizeSpecialistName(
+                  assignment.specialist,
+                ) as typeof assignment.specialist,
+              })),
+          }
+        : undefined,
+      stages: job.stages.map((stage) => ({
+        ...stage,
+        agentId: normalizeAgentId(stage.agentId),
+        artifact: stage.artifact
+          ? {
+              ...stage.artifact,
+              agentId: normalizeAgentId(stage.artifact.agentId),
+            }
+          : undefined,
+      })),
     })),
-    events: value.events.map(normalizeSeedAnchorEvent),
+    events: value.events.map((event) => ({
+      ...normalizeSeedAnchorEvent(event),
+      agentId: event.agentId ? normalizeAgentId(event.agentId) : undefined,
+    })),
     dossiers: value.dossiers.map((dossier) => ({
       ...dossier,
       localWorkflowStatus: dossier.localWorkflowStatus ?? "accepted",
@@ -53,7 +91,14 @@ function normalizeStoredState(value: AppState): AppState {
         dossier.id === "demo-escrow"
           ? "confirmed"
           : (dossier.casperAnchorStatus ?? "not-anchored"),
-      timeline: dossier.timeline.map(normalizeSeedAnchorEvent),
+      artifacts: dossier.artifacts.map((artifact) => ({
+        ...artifact,
+        agentId: normalizeAgentId(artifact.agentId),
+      })),
+      timeline: dossier.timeline.map((event) => ({
+        ...normalizeSeedAnchorEvent(event),
+        agentId: event.agentId ? normalizeAgentId(event.agentId) : undefined,
+      })),
     })),
   };
 }
@@ -255,7 +300,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 function agentsQuote(id: string) {
-  return id === "atlas"
+  return id === "axiom"
     ? "$18.00"
     : id === "forge"
       ? "$64.00"

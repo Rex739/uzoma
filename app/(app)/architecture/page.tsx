@@ -25,7 +25,7 @@ const stack = [
   },
   {
     name: "MCP-discovered Specialists",
-    sub: "Atlas · Forge · Sentinel · Verity",
+    sub: "Axiom · Forge · Sentinel · Verity",
     icon: Bot,
     status: "Planned architecture",
   },

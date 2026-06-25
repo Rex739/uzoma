@@ -10,11 +10,12 @@ import { demoCasperProof } from "@/lib/casper/proof";
 
 export const agents: AgentProfile[] = [
   {
-    id: "atlas",
-    name: "Atlas",
+    id: "axiom",
+    name: "Axiom",
     role: "Specification Agent",
-    description: "Turns intent into testable contract requirements.",
-    capabilities: ["Requirements", "State models", "Acceptance criteria"],
+    description:
+      "Defines requirements, workflow states, roles, invariants, acceptance criteria, and implementation boundaries.",
+    capabilities: ["Requirements", "Workflow states", "Acceptance criteria"],
     availability: "Online",
     completedJobs: 42,
     quote: "$18 / specification",
@@ -71,7 +72,7 @@ const stageTemplate: Omit<JobStage, "status">[] = [
   {
     id: "planning",
     name: "Planning",
-    agentId: "atlas",
+    agentId: "axiom",
     expectedOutput: "Contract specification",
     acceptanceCriteria: ["Roles defined", "Transitions documented"],
   },
@@ -223,7 +224,7 @@ export function artifactFor(
   if (!source) return undefined;
   const agentId =
     stageId === "planning"
-      ? "atlas"
+      ? "axiom"
       : stageId === "building"
         ? "forge"
         : stageId === "testing"
@@ -329,7 +330,7 @@ const defaultDossier: BuildDossier = {
             stageId: stage.artifact.id,
             status: "mock" as const,
             amount:
-              stage.agentId === "atlas"
+              stage.agentId === "axiom"
                 ? "$18.00"
                 : stage.agentId === "forge"
                   ? "$64.00"

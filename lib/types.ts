@@ -1,7 +1,7 @@
 import type { AgentMode, LeadAgentPlan } from "@/lib/agent/schema";
 
 export type StageStatus = "queued" | "active" | "completed" | "blocked";
-export type AgentId = "atlas" | "forge" | "sentinel" | "verity" | "uzoma";
+export type AgentId = "axiom" | "forge" | "sentinel" | "verity" | "uzoma";
 
 export interface AcceptanceCriterion {
   id: string;

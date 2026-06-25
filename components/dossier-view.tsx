@@ -73,9 +73,9 @@ function previewDossier(): BuildDossier {
         jobId: "demo-escrow",
         type: "artifact.submitted",
         title: "Specification accepted",
-        description: "Atlas delivered the contract requirements.",
+        description: "Axiom delivered the contract requirements.",
         timestamp: "2026-06-20T09:28:00.000Z",
-        agentId: "atlas",
+        agentId: "axiom",
       },
       {
         id: "p3",

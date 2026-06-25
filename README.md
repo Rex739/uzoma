@@ -30,10 +30,11 @@ The seeded workflow produces:
 
 ```text
 Request → Plan → Build → Test → Review → Dossier
-            Atlas   Forge   Sentinel   Verity
+            Axiom   Forge   Sentinel   Verity
+            Define  Build   Test       Verify
 ```
 
-- **Atlas** turns product intent into scoped acceptance criteria.
+- **Axiom** defines requirements, workflow states, roles, invariants, acceptance criteria, and implementation boundaries.
 - **Forge** builds contract artifacts against the approved specification.
 - **Sentinel** validates success paths, failure paths, and edge cases.
 - **Verity** independently checks the evidence before delivery is accepted.
@@ -168,7 +169,7 @@ The optimized WASM is reproducible build output and is intentionally ignored. Co
 
 1. Open the landing page and select **Open Workspace**.
 2. In **Recent accepted deliveries**, open **Milestone Escrow Contract** and point out the dynamic `Accepted` state.
-3. Review the lead-agent orchestration log and Atlas, Forge, Sentinel, and Verity artifacts.
+3. Review the lead-agent orchestration log and Axiom, Forge, Sentinel, and Verity artifacts.
 4. Open the completed Build Dossier.
 5. Copy the dossier hash and inspect the accepted artifact manifest.
 6. In **Casper Testnet Anchor**, show the confirmed package, install transaction, anchor transaction, artifact root, on-chain acceptance state, timestamp, and block.

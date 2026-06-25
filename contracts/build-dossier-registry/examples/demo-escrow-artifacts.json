@@ -7,7 +7,7 @@
       "key": "specification",
       "id": "demo-escrow-planning-artifact",
       "type": "specification",
-      "agentId": "atlas",
+      "agentId": "axiom",
       "name": "Milestone Escrow · Contract Requirements v1.0",
       "accepted": true,
       "content": "OBJECTIVE\nCreate a time-limited escrow that releases funds only after explicit payer approval and exposes a safe timeout refund path.\n\nROLES\nPayer — initializes and funds the escrow; approves the milestone.\nRecipient — receives funds after approval; cannot self-approve.\n\nSTATE MODEL\nCreated → Funded → Approved → Released\nFunded → TimedOut → Refunded\n\nINVARIANTS\nFunds cannot be released before payer approval.\nRefunds cannot execute before the deadline.\nTerminal states cannot be executed twice."

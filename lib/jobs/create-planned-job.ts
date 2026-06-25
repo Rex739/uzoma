@@ -25,8 +25,8 @@ export function createPlannedJob(
   );
   const stages = createStages(1).map((stage) => {
     const specialist =
-      stage.agentId === "atlas"
-        ? "Atlas"
+      stage.agentId === "axiom"
+        ? "Axiom"
         : stage.agentId === "forge"
           ? "Forge"
           : stage.agentId === "sentinel"

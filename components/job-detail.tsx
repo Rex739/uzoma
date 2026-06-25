@@ -645,7 +645,7 @@ export function JobDetail({ id }: { id: string }) {
               <div className="grid gap-px bg-line sm:grid-cols-2">
                 {[
                   "Workflow selected: milestone escrow delivery",
-                  "Planning assigned to Atlas: requirements and acceptance criteria",
+                  "Planning assigned to Axiom: requirements and acceptance criteria",
                   "Implementation assigned to Forge: Odra-style contract artifact",
                   "Validation split between Sentinel and Verity for independent testing and acceptance review",
                 ].map((decision, index) => (

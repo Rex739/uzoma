@@ -13,7 +13,7 @@ export const LeadAgentRequestSchema = z
 
 const SpecialistAssignmentSchema = z
   .object({
-    specialist: z.enum(["Atlas", "Forge", "Sentinel", "Verity"]),
+    specialist: z.enum(["Axiom", "Forge", "Sentinel", "Verity"]),
     objective: conciseText("Assignment objective", 300),
     expected_output: conciseText("Expected output", 200),
   })

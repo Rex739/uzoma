@@ -45,7 +45,7 @@ export function generateDeterministicPlan(
     ],
     specialist_assignments: [
       {
-        specialist: "Atlas",
+        specialist: "Axiom",
         objective: `Convert the brief and delivery context into an auditable specification for ${input.title}.`,
         expected_output: "Requirements and acceptance specification",
       },
