@@ -158,9 +158,13 @@ export function WorkflowCarousel() {
             <br className="hidden sm:block" /> every handoff is explicit.
           </h2>
           <p className="mt-6 max-w-md text-sm leading-7 text-slate-400">
-            Uzoma’s Lead Agent turns high-stakes DeFi and RWA briefs into
-            acceptance criteria and specialist assignments. Verity reviews the
-            resulting evidence before final approval.
+            Uzoma’s Lead Agent can structure high-assurance DeFi and RWA
+            requests into acceptance criteria, assurance requirements, and
+            specialist assignments. The local workflow then records artifacts,
+            testing, independent review, and final acceptance evidence.
+          </p>
+          <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-600">
+            The outcome is a delivery record — not just generated code.
           </p>
 
           <div className="mt-9 flex items-center gap-3">

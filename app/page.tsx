@@ -58,7 +58,7 @@ export default function Landing() {
             stagger={0.1}
           >
             <StaggerItem>
-              <Badge tone="cyan">Agent-native delivery workspace</Badge>
+              <Badge tone="cyan">Delivery governance for on-chain work</Badge>
             </StaggerItem>
             <StaggerItem>
               <h1 className="display-hero mx-auto mt-8 max-w-5xl text-balance">
@@ -69,8 +69,9 @@ export default function Landing() {
             </StaggerItem>
             <StaggerItem>
               <p className="mx-auto mt-7 max-w-2xl text-pretty text-base leading-7 text-slate-400 sm:text-lg">
-                Uzoma turns smart-contract requests into structured specialist
-                workflows, accepted artifacts, and verifiable build dossiers.
+                Uzoma turns high-assurance contract requests into structured
+                delivery records: clear requirements, reviewable evidence,
+                accepted artifacts, and explicit proof boundaries.
               </p>
             </StaggerItem>
             <StaggerItem>
@@ -165,9 +166,9 @@ export default function Landing() {
               Generated code is easy. Accountable delivery is not.
             </h2>
             <p className="mt-5 max-w-lg leading-7 text-slate-400">
-              AI can produce a contract in seconds, but production work needs
-              explicit criteria, specialist ownership, independent validation,
-              and evidence you can inspect later.
+              AI can produce a contract in seconds. High-stakes work still needs
+              explicit criteria, clear ownership, independent validation, and
+              evidence that remains inspectable after delivery.
             </p>
           </RevealOnScroll>
           <StaggerContainer
@@ -219,7 +220,7 @@ export default function Landing() {
           <RevealOnScroll className="text-center">
             <p className="eyebrow">Specialist network</p>
             <h2 className="display-section mt-4">
-              The right agent for each decision.
+              Clear responsibility for every delivery decision.
             </h2>
           </RevealOnScroll>
           <StaggerContainer
@@ -270,8 +271,8 @@ export default function Landing() {
                       {String(description)}
                     </p>
                     <div className="mt-6 flex flex-wrap gap-2">
-                      <Badge>MCP Service Profile</Badge>
-                      <Badge tone="cyan">Delivery-ready service</Badge>
+                      <Badge>Specialist role</Badge>
+                      <Badge tone="cyan">Local workflow step</Badge>
                     </div>
                   </HoverLift>
                 </StaggerItem>
@@ -326,9 +327,9 @@ export default function Landing() {
                 inspectable record.
               </p>
               <div className="mt-7 rounded-lg border border-gold/20 bg-gold/5 p-4 text-sm text-gold">
-                Every dossier is structured for Casper anchoring, preserving
-                artifact hashes, delivery receipts, acceptance criteria, and
-                final approval evidence from the start.
+                Accepted dossiers preserve artifact hashes, delivery records,
+                acceptance criteria, and review evidence — making them eligible
+                for explicit Casper anchoring when proof is required.
               </div>
             </StaggerItem>
           </StaggerContainer>
@@ -337,13 +338,18 @@ export default function Landing() {
           <RevealOnScroll className="relative overflow-hidden rounded-2xl border border-cyan/20 bg-[#0b131d] px-7 py-16 text-center sm:px-16">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(35,213,245,.11),transparent_50%)]" />
             <div className="relative">
-              <p className="eyebrow">Casper-native architecture preview</p>
+              <p className="eyebrow">Delivery governance layer</p>
               <h2 className="display-section mx-auto mt-4 max-w-3xl">
-                Turn agent output into accepted, verifiable delivery.
+                Turn agent-assisted work into accepted, verifiable delivery.
               </h2>
               <p className="mx-auto mt-5 max-w-xl text-slate-400">
-                Run the complete local workflow today, then inspect how each
-                accepted artifact becomes a portable Build Dossier.
+                Inspect how Uzoma connects structured planning, bounded workflow
+                evidence, independent review, and a portable Build Dossier. The
+                seeded demo dossier includes confirmed Casper Testnet proof.
+              </p>
+              <p className="mx-auto mt-5 max-w-2xl font-mono text-[9px] uppercase tracking-[0.18em] text-slate-600">
+                Built for protocol teams, Web3 agencies, security reviewers, and
+                RWA operators
               </p>
               <MotionPressable className="mt-8">
                 <Button asChild size="lg">
