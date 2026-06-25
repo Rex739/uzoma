@@ -249,54 +249,27 @@ export function DossierView({ id }: { id: string }) {
               <CopyButton value={dossier.dossierHash} label="Copy hash" />
             </div>
           </section>
-          {casperProof ? (
-            <section>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Accepted Deliverables</h2>
-                <Badge tone="gold">{dossier.artifacts.length} accepted</Badge>
-              </div>
-              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-                {dossier.artifacts.map((artifact) => (
-                  <div
-                    className="surface flex min-w-0 items-start gap-3 p-4"
-                    key={`accepted-${artifact.id}`}
-                  >
-                    <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-gold/20 bg-gold/[.06]">
-                      <CheckCircle2 className="size-4 text-gold" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold text-slate-200">
-                        {artifact.name}
-                      </p>
-                      <p className="mt-1 text-[10px] text-slate-600">
-                        {
-                          agents.find((agent) => agent.id === artifact.agentId)
-                            ?.name
-                        }{" "}
-                        · Accepted
-                      </p>
-                      <p className="mt-2 truncate font-mono text-[9px] text-slate-700">
-                        {artifact.hash}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="rounded-xl border border-cyan/15 bg-cyan/[.025] px-5 py-4">
-              <p className="eyebrow text-cyan">Dossier integrity</p>
-              <p className="mt-3 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200">
-                4 ACCEPTED ARTIFACTS · INDEPENDENT REVIEW COMPLETE · LOCAL
-                DOSSIER VERIFIED
-              </p>
-              <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-                The manifest below binds the approved specification,
-                implementation artifact, test evidence, and independent review
-                into one accepted delivery record.
-              </p>
-            </section>
-          )}
+          <section
+            className={`rounded-xl border px-5 py-4 ${
+              casperProof
+                ? "border-gold/20 bg-gold/[.035]"
+                : "border-cyan/15 bg-cyan/[.025]"
+            }`}
+          >
+            <p className={`eyebrow ${casperProof ? "text-gold" : "text-cyan"}`}>
+              Dossier integrity
+            </p>
+            <p className="mt-3 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200">
+              {casperProof
+                ? "4 ACCEPTED ARTIFACTS · INDEPENDENT REVIEW COMPLETE · TESTNET ANCHOR CONFIRMED"
+                : "4 ACCEPTED ARTIFACTS · INDEPENDENT REVIEW COMPLETE · LOCAL DOSSIER VERIFIED"}
+            </p>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+              {casperProof
+                ? "This accepted delivery record is bound to the verified artifact manifest below and has a confirmed Casper Testnet anchor."
+                : "The manifest below binds the approved specification, implementation artifact, test evidence, and independent review into one accepted delivery record."}
+            </p>
+          </section>
           <section>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Artifact manifest</h2>
