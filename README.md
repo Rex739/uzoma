@@ -2,7 +2,16 @@
 
 **AI agents that ship verifiable on-chain work.**
 
-Uzoma is an agent-native delivery workspace that turns smart-contract requests into structured specialist workflows, accepted artifacts, and verifiable Build Dossiers. The delivery workflow runs locally; the accepted Milestone Escrow dossier has been anchored through a real Odra registry deployed on Casper Testnet.
+Uzoma is an agent-native delivery workspace that turns smart-contract requests into structured specialist workflows, accepted artifacts, and verifiable Build Dossiers. The deployed on-chain component is Uzoma’s `BuildDossierRegistry` on Casper Testnet. The Milestone Escrow implementation shown in the demo is a reviewed delivery-artifact preview; it is not the deployed contract.
+
+## What is live now
+
+- **Live Lead Agent planning** — new requests can receive structured plans, assurance assessments, specialist assignments, acceptance criteria, and review requirements through the server-side OpenAI integration.
+- **Structured delivery workflow** — Axiom, Forge, Sentinel, and Verity model deterministic local specification, build, test, and review stages.
+- **Evidence-backed Build Dossiers** — accepted delivery records include artifacts, reviews, deterministic hashes, and artifact roots.
+- **Casper Testnet proof** — the deployed `BuildDossierRegistry` contains a confirmed anchor for the seeded `demo-escrow` dossier.
+
+New jobs are planned live when configured, but are not automatically anchored; Casper anchoring remains a deliberate action after accepted evidence is ready.
 
 ## The problem
 
@@ -15,12 +24,12 @@ Generating code is easy. Accountable delivery is not.
 
 ## The Uzoma solution
 
-Uzoma makes each handoff explicit. A constrained server-side Lead Agent can use the OpenAI Responses API to turn a new delivery brief into validated acceptance criteria, specialist assignments, review requirements, and an explicit Casper anchoring policy. Specialist agents then produce bounded artifacts, an independent reviewer validates the evidence, and the accepted result becomes a portable Build Dossier.
+Uzoma makes each handoff explicit. A constrained server-side Lead Agent can use the OpenAI Responses API to turn a new delivery brief into validated acceptance criteria, specialist assignments, review requirements, and an explicit Casper anchoring policy. After a plan is created, the current build models specialist execution through deterministic local orchestration. This produces bounded artifacts, test evidence, independent-review records, and a portable Build Dossier.
 
 The seeded workflow produces:
 
 - a requirements and acceptance-criteria specification;
-- an Odra-style Rust implementation artifact;
+- a reviewed Milestone Escrow implementation preview;
 - a test report covering success, failure, and edge cases;
 - an independent acceptance review;
 - a deterministic dossier hash and four-artifact root;
@@ -39,7 +48,7 @@ Request → Plan → Build → Test → Review → Dossier
 - **Sentinel** validates success paths, failure paths, and edge cases.
 - **Verity** independently checks the evidence before delivery is accepted.
 
-These specialist profiles are local delivery services in the current build. MCP discovery remains integration architecture; the app does not claim a live MCP connection.
+These specialist profiles are local delivery services in the current build. MCP discovery remains planned integration; the app does not claim a live MCP connection.
 
 ### Server-side Lead Agent
 
@@ -49,8 +58,10 @@ Copy the variable names from `.env.example` into your own ignored local environm
 
 ```bash
 OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-5-mini
+OPENAI_MODEL=gpt-5.4-mini
 ```
+
+Model availability depends on the API project. Use a model available to your project that supports Uzoma’s structured planning workflow.
 
 Both values are required. If `OPENAI_MODEL` is missing, the server returns a clear configuration error rather than selecting a hardcoded model. OpenAI API usage can incur model charges, so configure account limits appropriate to the demo. Never commit the key or expose it through a `NEXT_PUBLIC_` variable.
 
@@ -58,11 +69,11 @@ The Lead Agent model is configured server-side through OPENAI_MODEL. Model names
 
 ### Lead Agent troubleshooting
 
-Model availability and feature support depend on the API project and credentials configured on the server. Uzoma does not assume that a model string is accessible merely because it is present in `OPENAI_MODEL`, and it does not silently select a fallback model. After changing the model, fully restart `npm run dev` and submit one request through the Create Build Request UI.
+Model availability and feature support depend on the API project and credentials configured on the server. Uzoma does not assume that a model string is accessible merely because it is present in `OPENAI_MODEL`, and it does not silently select a fallback model. After changing the model, fully restart `npm run dev`.
 
-The route converts provider metadata into safe categories for unavailable or unsupported models, invalid credentials, insufficient quota, rate limits, malformed structured output, temporary provider outages, and unknown provider failures. Public errors never include raw provider messages, request IDs, credentials, project identifiers, or response bodies. Use only the sanitized server category when troubleshooting.
+Provider failures are mapped to safe categories for unavailable or unsupported models, invalid credentials, insufficient quota, rate limits, malformed structured output, outages, and unknown errors. Public errors never include raw provider messages, request IDs, credentials, project identifiers, or response bodies.
 
-When the key is missing or the provider fails, Uzoma does not silently impersonate a live response. The create-request dialog explains the failure and offers a separate, explicit **Use deterministic demo plan** action. Those jobs are stored as `agentMode: deterministic_demo`; successful API plans are stored as `agentMode: live`.
+When the key is missing or the provider fails, Uzoma does not impersonate a live response. The create-request dialog offers a separate, explicit **Use deterministic demo plan** action. Those jobs are stored as `agentMode: deterministic_demo`; successful API plans are stored as `agentMode: live`.
 
 Lead Agent planning never deploys a contract, signs a transaction, sends a payment, or anchors a dossier. Casper anchoring remains a separate operator-controlled action after local acceptance.
 
@@ -81,25 +92,29 @@ Uzoma does not execute escrow payments. It demonstrates the delivery and proof l
 
 ## Architecture
 
-| Layer                              | Current status                               |
-| ---------------------------------- | -------------------------------------------- |
-| Multi-agent delivery workflow      | Implemented locally                          |
-| Artifact generation and acceptance | Implemented locally                          |
-| Deterministic Build Dossier        | Implemented locally                          |
-| Odra `BuildDossierRegistry`        | Deployed on Casper Testnet                   |
-| Demo dossier proof event           | Confirmed on Casper Testnet                  |
-| MCP specialist discovery           | Integration architecture                     |
-| x402 settlement                    | Integration architecture; mock receipts only |
-| Browser wallet signing             | Not implemented                              |
-| Automatic anchoring of future jobs | Not implemented                              |
+| Layer                              | Current status                                |
+| ---------------------------------- | --------------------------------------------- |
+| Multi-agent delivery workflow      | Implemented locally                           |
+| Artifact generation and acceptance | Implemented locally                           |
+| Deterministic Build Dossier        | Implemented locally                           |
+| Odra `BuildDossierRegistry`        | Deployed on Casper Testnet                    |
+| Demo dossier proof event           | Confirmed on Casper Testnet                   |
+| MCP specialist discovery           | Planned integration                           |
+| x402 settlement                    | Planned integration; mock delivery accounting |
+| Browser wallet signing             | Planned integration                           |
+| Automatic anchoring of future jobs | Explicit operator action only                 |
 
 The browser contains no private key handling, signing, contract-write, payment, or automatic-anchoring logic. Local workflow status and Casper anchor status are modeled separately.
+
+Uzoma does not represent local workflow completion as an on-chain event; local and Casper proof statuses are modeled separately.
 
 ## Real Casper Testnet proof
 
 The public proof below is intentionally committed in [`lib/casper/demo-proof.json`](lib/casper/demo-proof.json) and exposed through the typed record in [`lib/casper/proof.ts`](lib/casper/proof.ts).
 
 **Status: Anchored on Casper Testnet — Confirmed on-chain proof in the live Testnet registry.**
+
+The deployed on-chain component is Uzoma’s `BuildDossierRegistry` on Casper Testnet. The Milestone Escrow implementation shown in the demo is a reviewed delivery-artifact preview; it is not the deployed contract.
 
 | Proof identifier    | Value                                                                     |
 | ------------------- | ------------------------------------------------------------------------- |
@@ -167,14 +182,11 @@ The optimized WASM is reproducible build output and is intentionally ignored. Co
 
 ## Demo flow for judges
 
-1. Open the landing page and select **Open Workspace**.
-2. In **Recent accepted deliveries**, open **Milestone Escrow Contract** and point out the dynamic `Accepted` state.
-3. Review the lead-agent orchestration log and Axiom, Forge, Sentinel, and Verity artifacts.
-4. Open the completed Build Dossier.
-5. Copy the dossier hash and inspect the accepted artifact manifest.
-6. In **Casper Testnet Anchor**, show the confirmed package, install transaction, anchor transaction, artifact root, on-chain acceptance state, timestamp, and block.
-7. Open **Architecture** and distinguish the live Testnet proof layer from planned MCP discovery and x402 settlement.
-8. Optionally run `./scripts/verify-demo-anchor.sh` in a prepared terminal to reproduce the read-only proof.
+1. Open **Create Build Request** and show a completed `LIVE AGENT PLAN`, including Assurance Level, rationale, specialist assignments, and acceptance criteria.
+2. Open the generated local dossier and point out that new work is not automatically Casper-anchored.
+3. Open the completed seeded `demo-escrow` Build Dossier.
+4. In **Casper Testnet Anchor**, show the registry package hash, install transaction, anchor transaction, accepted state, artifact root, timestamp, and block.
+5. Optionally run `./scripts/verify-demo-anchor.sh` to reproduce the proof through read-only RPC verification.
 
 ## Routes
 
@@ -186,16 +198,16 @@ The optimized WASM is reproducible build output and is intentionally ignored. Co
 - `/activity` — local workflow audit trail
 - `/architecture` — implemented boundaries and planned integrations
 
-## Honest limitations
+## Implementation boundaries
 
-- Specialist execution and generated delivery artifacts remain deterministic local application state. New request planning can be live through the server-side OpenAI integration when configured.
-- The seeded Milestone Escrow job remains a labeled local orchestration record and does not claim that its plan was generated by OpenAI.
-- Only the seeded `demo-escrow` Build Dossier is confirmed on Casper Testnet.
-- Newly created jobs are not automatically anchored.
-- MCP discovery is not active.
-- x402 payments and settlement are not executed; receipt amounts are mock delivery accounting.
-- Browser wallet connection and signing are not implemented.
-- The registry deployment and proof are Testnet-only.
-- No compatible Testnet explorer link is shown because one was not reliably verified for this build.
+Uzoma intentionally separates planning, local delivery orchestration, and on-chain proof.
+
+- New request planning can run through the configured server-side Lead Agent.
+- Specialist execution, artifact generation, reviews, and receipt accounting are deterministic local workflow state in the current build.
+- Only the seeded `demo-escrow` Build Dossier has confirmed Casper Testnet proof.
+- New jobs are not automatically anchored.
+- Receipt amounts are delivery accounting only; no payment or settlement is executed.
+- MCP discovery, x402 settlement, browser wallet connection, and user signing are planned integration surfaces.
+- The current registry deployment and proof are Testnet-only.
 
 See [`contracts/build-dossier-registry/README.md`](contracts/build-dossier-registry/README.md) for the contract and operator workflow, and [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md) for the final submission handoff.
