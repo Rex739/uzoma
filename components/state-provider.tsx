@@ -20,6 +20,7 @@ import type {
   AgentId,
   AppState,
   BuildDossier,
+  BrowserCasperAnchorProof,
 } from "@/lib/types";
 
 const KEY = "uzoma-demo-state-v2";
@@ -30,6 +31,11 @@ type StateContext = {
   createJob: (input: PlannedJobInput) => string;
   runNextStage: (jobId: string) => void;
   createDossier: (jobId: string) => Promise<string | undefined>;
+  updateDossierCasperProof: (
+    dossierId: string,
+    proof: BrowserCasperAnchorProof,
+  ) => void;
+  markDossierCasperUnverified: (dossierId: string) => void;
 };
 const Context = createContext<StateContext | null>(null);
 
@@ -302,9 +308,76 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     },
     [state.events, state.jobs, updateState],
   );
+  const updateDossierCasperProof = useCallback(
+    (dossierId: string, proof: BrowserCasperAnchorProof) => {
+      updateState((s) => ({
+        ...s,
+        dossiers: s.dossiers.map((dossier) =>
+          dossier.id === dossierId
+            ? {
+                ...dossier,
+                casperAnchorStatus: "confirmed",
+                casperAnchorProof: proof,
+              }
+            : dossier,
+        ),
+        events: [
+          {
+            id: `evt-${Date.now()}`,
+            jobId: proof.onChainRecord.jobId,
+            type: "casper.anchor.confirmed",
+            title: "Build Dossier confirmed on Casper Testnet",
+            description:
+              "Read-only verification matched the accepted dossier evidence in the live Testnet registry.",
+            timestamp: proof.verifiedAt,
+            agentId: "uzoma",
+          },
+          ...s.events,
+        ],
+      }));
+    },
+    [updateState],
+  );
+  const markDossierCasperUnverified = useCallback(
+    (dossierId: string) => {
+      updateState((s) => ({
+        ...s,
+        dossiers: s.dossiers.map((dossier) =>
+          dossier.id === dossierId
+            ? {
+                ...dossier,
+                casperAnchorStatus:
+                  dossier.casperAnchorStatus === "confirmed"
+                    ? "confirmed"
+                    : "unverified",
+              }
+            : dossier,
+        ),
+      }));
+    },
+    [updateState],
+  );
   const value = useMemo(
-    () => ({ state, hydrated, reset, createJob, runNextStage, createDossier }),
-    [state, hydrated, reset, createJob, runNextStage, createDossier],
+    () => ({
+      state,
+      hydrated,
+      reset,
+      createJob,
+      runNextStage,
+      createDossier,
+      updateDossierCasperProof,
+      markDossierCasperUnverified,
+    }),
+    [
+      state,
+      hydrated,
+      reset,
+      createJob,
+      runNextStage,
+      createDossier,
+      updateDossierCasperProof,
+      markDossierCasperUnverified,
+    ],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

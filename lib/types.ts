@@ -70,6 +70,40 @@ export interface ActivityEvent {
   timestamp: string;
   agentId?: AgentId;
 }
+export interface BrowserCasperAnchorProof {
+  schema: "uzoma.browser-casper-anchor.v1";
+  status: "confirmed";
+  network: "Casper Testnet";
+  chainName: "casper-test";
+  packageHash: string;
+  contractHash?: string;
+  anchorTransactionHash: string;
+  csprLiveUrl: string;
+  block?: {
+    hash?: string;
+    height?: number;
+    stateRootHash?: string;
+  };
+  event?: {
+    dictionary: "__events";
+    index: number;
+    dictionaryKey?: string;
+    name: "DossierAnchored";
+  };
+  onChainRecord: {
+    id: number;
+    creator?: string;
+    jobId: string;
+    dossierHash: string;
+    artifactRootHash: string;
+    artifactCount: number;
+    accepted: true;
+    recordedAt?: number;
+    recordedAtIso?: string;
+  };
+  verifiedAt: string;
+  browserLocal: true;
+}
 export interface BuildDossier {
   id: string;
   jobId: string;
@@ -82,7 +116,8 @@ export interface BuildDossier {
     | "legacy-static-v1";
   finalApproval: "Approved";
   localWorkflowStatus: "accepted";
-  casperAnchorStatus: "not-anchored" | "confirmed";
+  casperAnchorStatus: "not-anchored" | "submitted" | "unverified" | "confirmed";
+  casperAnchorProof?: BrowserCasperAnchorProof;
   artifacts: DeliveryArtifact[];
   timeline: ActivityEvent[];
   receipts: PaymentReceipt[];
