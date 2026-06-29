@@ -5,11 +5,13 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  ExternalLink,
   FileCheck2,
   Fingerprint,
   Layers3,
   ShieldCheck,
 } from "lucide-react";
+import { DossierAnchorAction } from "@/components/dossier-anchor-action";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
 import { getCasperProofForJob } from "@/lib/casper/proof";
@@ -142,6 +144,7 @@ export function DossierView({ id }: { id: string }) {
     dossier.casperAnchorStatus === "confirmed"
       ? getCasperProofForJob(job.id)
       : undefined;
+  const liveProof = dossier.casperAnchorProof;
   const exportJson = JSON.stringify(
     {
       schema: "uzoma.build-dossier.v1",
@@ -184,7 +187,9 @@ export function DossierView({ id }: { id: string }) {
             <div>
               <div className="flex items-center gap-3">
                 <Badge tone="gold">Verified delivery</Badge>
-                {casperProof && <Badge tone="green">Testnet anchored</Badge>}
+                {(casperProof || liveProof) && (
+                  <Badge tone="green">Testnet anchored</Badge>
+                )}
               </div>
               <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white">
                 {job.title}
@@ -251,21 +256,25 @@ export function DossierView({ id }: { id: string }) {
           </section>
           <section
             className={`rounded-xl border px-5 py-4 ${
-              casperProof
+              casperProof || liveProof
                 ? "border-gold/20 bg-gold/[.035]"
                 : "border-cyan/15 bg-cyan/[.025]"
             }`}
           >
-            <p className={`eyebrow ${casperProof ? "text-gold" : "text-cyan"}`}>
+            <p
+              className={`eyebrow ${
+                casperProof || liveProof ? "text-gold" : "text-cyan"
+              }`}
+            >
               Dossier integrity
             </p>
             <p className="mt-3 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200">
-              {casperProof
+              {casperProof || liveProof
                 ? "4 ACCEPTED ARTIFACTS · INDEPENDENT REVIEW COMPLETE · TESTNET ANCHOR CONFIRMED"
                 : "4 ACCEPTED ARTIFACTS · INDEPENDENT REVIEW COMPLETE · LOCAL DOSSIER VERIFIED"}
             </p>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-              {casperProof
+              {casperProof || liveProof
                 ? "This accepted delivery record is bound to the verified artifact manifest below and has a confirmed Casper Testnet anchor."
                 : "The manifest below binds the approved specification, implementation artifact, test evidence, and independent review into one accepted delivery record."}
             </p>
@@ -437,15 +446,71 @@ export function DossierView({ id }: { id: string }) {
                 />
               </div>
             </section>
-          ) : (
-            <section className="rounded-xl border border-line bg-white/[.015] p-5">
-              <p className="text-xs font-semibold text-slate-300">
-                Casper anchor not recorded
+          ) : liveProof ? (
+            <section className="rounded-xl border border-gold/30 bg-[linear-gradient(145deg,rgba(233,185,73,.09),rgba(20,184,166,.035))] p-5 shadow-[0_0_32px_rgba(233,185,73,.05)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-gold" />
+                  <p className="text-xs font-semibold text-white">
+                    Casper Testnet Anchor
+                  </p>
+                </div>
+                <Badge tone="green">Confirmed</Badge>
+              </div>
+              <p className="mt-3 text-xs leading-6 text-slate-400">
+                Confirmed on-chain proof in the live Testnet registry. This
+                proof is saved in this browser until public persistence is
+                added.
               </p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">
-                This local dossier has not been anchored automatically.
-              </p>
+              <div className="mt-4">
+                <ProofRow
+                  label="Network"
+                  value={liveProof.network}
+                  display={liveProof.network}
+                />
+                <ProofRow
+                  label="Package hash"
+                  value={liveProof.packageHash}
+                />
+                <ProofRow
+                  label="Anchor transaction"
+                  value={liveProof.anchorTransactionHash}
+                />
+                <ProofRow
+                  label="Dossier hash"
+                  value={liveProof.onChainRecord.dossierHash}
+                />
+                <ProofRow
+                  label="Artifact root"
+                  value={liveProof.onChainRecord.artifactRootHash}
+                />
+                <ProofRow
+                  label="On-chain status"
+                  value="Accepted"
+                  display="Accepted"
+                />
+              </div>
+              <a
+                href={liveProof.csprLiveUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center gap-1 text-xs text-cyan hover:text-white"
+              >
+                View on CSPR.live <ExternalLink className="size-3" />
+              </a>
             </section>
+          ) : (
+            <>
+              <DossierAnchorAction dossier={dossier} job={job} />
+              <section className="rounded-xl border border-line bg-white/[.015] p-5">
+                <p className="text-xs font-semibold text-slate-300">
+                  Casper anchor not recorded
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-600">
+                  This local dossier has not been anchored automatically.
+                </p>
+              </section>
+            </>
           )}
         </aside>
       </div>
