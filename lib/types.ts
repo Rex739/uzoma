@@ -75,6 +75,11 @@ export interface BuildDossier {
   jobId: string;
   createdAt: string;
   dossierHash: string;
+  dossierHashVersion?: "uzoma-dossier-canonical-v1" | "legacy-static-v1";
+  artifactRootHash?: string;
+  artifactRootHashVersion?:
+    | "uzoma-artifact-manifest-root-v1"
+    | "legacy-static-v1";
   finalApproval: "Approved";
   localWorkflowStatus: "accepted";
   casperAnchorStatus: "not-anchored" | "confirmed";
