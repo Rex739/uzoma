@@ -10,6 +10,7 @@ import {
 } from "react";
 import { artifactFor, seedState } from "@/lib/mock-data";
 import { demoCasperProof } from "@/lib/casper/proof";
+import { applyDossierIntegrity } from "@/lib/dossiers/evidence-integrity";
 import {
   createPlannedJob,
   type PlannedJobInput,
@@ -28,7 +29,7 @@ type StateContext = {
   reset: () => void;
   createJob: (input: PlannedJobInput) => string;
   runNextStage: (jobId: string) => void;
-  createDossier: (jobId: string) => string | undefined;
+  createDossier: (jobId: string) => Promise<string | undefined>;
 };
 const Context = createContext<StateContext | null>(null);
 
@@ -221,53 +222,61 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     [updateState],
   );
   const createDossier = useCallback(
-    (jobId: string) => {
-      let dossierId: string | undefined;
+    async (jobId: string) => {
+      const currentJob = state.jobs.find((job) => job.id === jobId);
+      if (!currentJob || currentJob.dossierId) {
+        return currentJob?.dossierId;
+      }
+      const acceptedIndex = currentJob.stages.findIndex(
+        (stage) => stage.id === "accepted",
+      );
+      if (
+        acceptedIndex < 0 ||
+        currentJob.stages[acceptedIndex].status !== "active"
+      ) {
+        return undefined;
+      }
+      const now = new Date().toISOString();
+      const dossierId = currentJob.id;
+      const artifacts = currentJob.stages.flatMap((stage) =>
+        stage.artifact ? [stage.artifact] : [],
+      );
+      const event = {
+        id: `evt-${Date.now()}`,
+        jobId,
+        type: "dossier.generated",
+        title: "Build Dossier generated",
+        description: `${currentJob.title} accepted and recorded in the local dossier registry.`,
+        timestamp: now,
+        agentId: "uzoma" as const,
+      };
+      const provisionalDossier: BuildDossier = {
+        id: dossierId,
+        jobId,
+        createdAt: now,
+        dossierHash: "",
+        finalApproval: "Approved",
+        localWorkflowStatus: "accepted",
+        casperAnchorStatus: "not-anchored",
+        artifacts,
+        timeline: [
+          ...state.events.filter((event) => event.jobId === jobId),
+          event,
+        ].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+        receipts: artifacts.map((artifact, index) => ({
+          id: `x402-demo-${jobId}-${String(index + 1).padStart(3, "0")}`,
+          stageId: artifact.id,
+          status: "mock",
+          amount: agentsQuote(artifact.agentId),
+          note: "Mock delivery receipt — no payment executed",
+        })),
+      };
+      const dossier = await applyDossierIntegrity(provisionalDossier);
       updateState((s) => {
         const job = s.jobs.find((j) => j.id === jobId);
         if (!job || job.dossierId) {
-          dossierId = job?.dossierId;
           return s;
         }
-        const acceptedIndex = job.stages.findIndex(
-          (st) => st.id === "accepted",
-        );
-        if (acceptedIndex < 0 || job.stages[acceptedIndex].status !== "active")
-          return s;
-        const now = new Date().toISOString();
-        dossierId = job.id;
-        const artifacts = job.stages.flatMap((st) =>
-          st.artifact ? [st.artifact] : [],
-        );
-        const event = {
-          id: `evt-${Date.now()}`,
-          jobId,
-          type: "dossier.generated",
-          title: "Build Dossier generated",
-          description: `${job.title} accepted and recorded in the local dossier registry.`,
-          timestamp: now,
-          agentId: "uzoma" as const,
-        };
-        const dossier: BuildDossier = {
-          id: dossierId,
-          jobId,
-          createdAt: now,
-          dossierHash: `sha256:${`uzoma-dossier-${jobId}`.padEnd(64, "4fd18b").slice(0, 64)}`,
-          finalApproval: "Approved",
-          localWorkflowStatus: "accepted",
-          casperAnchorStatus: "not-anchored",
-          artifacts,
-          timeline: [...s.events.filter((e) => e.jobId === jobId), event].sort(
-            (a, b) => a.timestamp.localeCompare(b.timestamp),
-          ),
-          receipts: artifacts.map((a, i) => ({
-            id: `x402-demo-${jobId}-${String(i + 1).padStart(3, "0")}`,
-            stageId: a.id,
-            status: "mock",
-            amount: agentsQuote(a.agentId),
-            note: "Mock delivery receipt — no payment executed",
-          })),
-        };
         const stages = job.stages.map((st) =>
           st.id === "accepted" || st.id === "dossier"
             ? { ...st, status: "completed" as const, timestamp: now }
@@ -291,7 +300,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
       });
       return dossierId;
     },
-    [updateState],
+    [state.events, state.jobs, updateState],
   );
   const value = useMemo(
     () => ({ state, hydrated, reset, createJob, runNextStage, createDossier }),

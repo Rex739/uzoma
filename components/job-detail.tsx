@@ -447,8 +447,8 @@ export function JobDetail({ id }: { id: string }) {
       setRunning(false);
     }, 650);
   }
-  function dossier() {
-    const dossierId = createDossier(id);
+  async function dossier() {
+    const dossierId = await createDossier(id);
     if (dossierId) router.push(`/dossier/${dossierId}`);
   }
 
