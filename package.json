@@ -14,8 +14,7 @@
     "contracts:artifact-root": "node --import tsx contracts/build-dossier-registry/scripts/compute-artifact-root.ts"
   },
   "dependencies": {
-    "@make-software/csprclick-core-client": "^1.11.0",
-    "@make-software/csprclick-core-types": "^1.11.0",
+    "@make-software/csprclick-core-types": "^2.1.0",
     "casper-js-sdk": "^5.0.12",
     "clsx": "2.1.1",
     "framer-motion": "^12.41.0",

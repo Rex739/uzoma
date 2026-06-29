@@ -1,27 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, ShieldCheck, Wallet } from "lucide-react";
-import { Badge, Button, CopyButton } from "@/components/ui";
-import { useAppState } from "@/components/state-provider";
+import { ShieldCheck } from "lucide-react";
+import { Badge, Button } from "@/components/ui";
 import {
-  abbreviatePublicKey,
-  getCsprLiveDeployUrl,
   isLegacyDossier,
   isValidMotesPaymentAmount,
-  type AnchorVerificationResponse,
   type LiveProofAnchorState,
 } from "@/lib/casper/live-proof";
-import {
-  buildAnchorDossierTransaction,
-  LIVE_PROOF_ANCHOR_CONFIG,
-} from "@/lib/casper/live-proof-transaction";
-import {
-  connectCasperWallet,
-  createCsprClickWalletClient,
-  getCsprClickConfigIssue,
-  type CsprClickWalletClient,
-} from "@/lib/casper/csprclick-client";
+import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-transaction";
+import { getCsprClickConfigIssue } from "@/lib/casper/csprclick-client";
 import {
   computeDossierIntegrity,
   getDossierAnchorEligibility,
@@ -57,19 +45,12 @@ function ProofField({
 }
 
 export function DossierAnchorAction({ dossier, job }: Props) {
-  const { updateDossierCasperProof, markDossierCasperUnverified } =
-    useAppState();
   const [eligibility, setEligibility] =
     useState<DossierAnchorEligibility | null>(null);
   const [state, setState] = useState<LiveProofAnchorState>("ready");
   const [modalOpen, setModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
-  const [walletClient, setWalletClient] = useState<CsprClickWalletClient | null>(
-    null,
-  );
-  const [publicKey, setPublicKey] = useState("");
   const [message, setMessage] = useState("");
-  const [submittedHash, setSubmittedHash] = useState("");
 
   const artifactRootHash = dossier.artifactRootHash ?? "";
   const configIssue = getCsprClickConfigIssue();
@@ -113,79 +94,12 @@ export function DossierAnchorAction({ dossier, job }: Props) {
     );
   }
 
-  async function connectWallet() {
-    setState("wallet-connecting");
-    setMessage("");
-    try {
-      const client = await createCsprClickWalletClient();
-      const connection = await connectCasperWallet(client);
-      setWalletClient(client);
-      setPublicKey(connection.publicKey);
-      if (!connection.supportsTransactionV1) {
-        setState("failed");
-        setMessage(
-          "Connected wallet does not advertise TransactionV1 approval support.",
-        );
-        return;
-      }
-      setState("reviewing");
-    } catch (error) {
-      setState("rejected");
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Wallet connection was rejected or unavailable.",
-      );
-    }
-  }
-
-  async function verifySubmittedAnchor(transactionHash: string) {
-    setState("confirming-on-casper");
-    let result: AnchorVerificationResponse | undefined;
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const response = await fetch("/api/casper/verify-anchor", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          transactionHash,
-          expectedJobId: job.id,
-          expectedDossierHash: dossier.dossierHash,
-          expectedArtifactRootHash: artifactRootHash,
-          expectedArtifactCount: dossier.artifacts.length,
-          expectedPackageHash: LIVE_PROOF_ANCHOR_CONFIG.packageHash,
-        }),
-      });
-      result = (await response.json()) as AnchorVerificationResponse;
-      if (result.status !== "unverified") break;
-      await new Promise((resolve) => setTimeout(resolve, 8000));
-    }
-    result ??= {
-      status: "unverified",
-      code: "VERIFY_TIMEOUT",
-      message: "UNVERIFIED — CHECK AGAIN",
-      transactionHash,
-    };
-    if (result.status === "confirmed") {
-      setState("confirmed");
-      updateDossierCasperProof(dossier.id, result.proof);
-      setMessage("CONFIRMED ON CASPER TESTNET");
-      return;
-    }
-    setState(result.status === "failed" ? "failed" : "unverified");
-    markDossierCasperUnverified(dossier.id);
-    setMessage(result.message || "UNVERIFIED — CHECK AGAIN");
-  }
-
   async function reviewInWallet() {
-    if (!walletClient || !publicKey) {
-      setMessage("Connect Casper Wallet before wallet review.");
-      return;
-    }
     if (!paymentIsValid) {
       setMessage("Enter a deliberate positive payment amount in motes.");
       return;
     }
-    setState("awaiting-wallet-approval");
+    setState("reviewing");
     setMessage("");
     try {
       const integrity = await computeDossierIntegrity(dossier);
@@ -199,40 +113,13 @@ export function DossierAnchorAction({ dossier, job }: Props) {
         );
         return;
       }
-      const transaction = buildAnchorDossierTransaction({
-        signerPublicKey: publicKey,
-        jobId: job.id,
-        dossierHash: dossier.dossierHash,
-        artifactRootHash,
-        artifactCount: dossier.artifacts.length,
-        paymentAmount,
-      });
-      const sendResult = await walletClient.sdk.send(
-        transaction.transactionV1Json,
-        publicKey,
+      setMessage(
+        "Payload readiness passed. Wallet submission is disabled during Phase 2C; use internal diagnostics for connection-only smoke testing.",
       );
-      if (!sendResult || sendResult.cancelled) {
-        setState("rejected");
-        setMessage("Wallet approval was cancelled. No anchor was confirmed.");
-        return;
-      }
-      if (sendResult.error || !sendResult.transactionHash) {
-        setState("failed");
-        setMessage(
-          "Wallet submission did not return a Casper transaction hash.",
-        );
-        return;
-      }
-      setState("submitted");
-      setSubmittedHash(sendResult.transactionHash);
-      setMessage("Transaction submitted. Waiting for independent readback.");
-      await verifySubmittedAnchor(sendResult.transactionHash);
-    } catch (error) {
+    } catch {
       setState("failed");
       setMessage(
-        error instanceof Error
-          ? error.message
-          : "Live proof transaction could not be prepared.",
+        "Evidence changed after acceptance. Re-accept the dossier before anchoring.",
       );
     }
   }
@@ -320,12 +207,8 @@ export function DossierAnchorAction({ dossier, job }: Props) {
               />
               <ProofField
                 label="Signer"
-                value={publicKey || "Connect wallet to review signer"}
-                display={
-                  publicKey
-                    ? abbreviatePublicKey(publicKey)
-                    : "Connect wallet to review signer"
-                }
+                value="Connection diagnostics only in Phase 2C"
+                display="Connection diagnostics only in Phase 2C"
               />
             </div>
             <label className="mt-5 block text-xs font-semibold text-slate-300">
@@ -338,29 +221,6 @@ export function DossierAnchorAction({ dossier, job }: Props) {
                 onChange={(event) => setPaymentAmount(event.target.value)}
               />
             </label>
-            {submittedHash && (
-              <div className="mt-4 rounded-lg border border-cyan/15 bg-cyan/[.025] p-3">
-                <p className="text-[10px] uppercase tracking-wider text-cyan">
-                  Submitted transaction hash
-                </p>
-                <div className="mt-2 flex min-w-0 items-center gap-2">
-                  <span className="truncate font-mono text-[10px] text-slate-300">
-                    {submittedHash}
-                  </span>
-                  <CopyButton value={submittedHash} label="Copy" />
-                </div>
-                {state === "confirmed" && (
-                  <a
-                    className="mt-3 inline-flex items-center gap-1 text-xs text-cyan hover:text-white"
-                    href={getCsprLiveDeployUrl(submittedHash)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View on CSPR.live <ExternalLink className="size-3" />
-                  </a>
-                )}
-              </div>
-            )}
             {message && (
               <p
                 className={`mt-4 text-xs leading-5 ${
@@ -376,28 +236,15 @@ export function DossierAnchorAction({ dossier, job }: Props) {
             )}
             <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <Button
-                variant="secondary"
-                onClick={connectWallet}
-                loading={state === "wallet-connecting"}
-              >
-                <Wallet className="size-4" />
-                {publicKey ? "Wallet connected" : "Connect Casper Wallet"}
-              </Button>
-              <Button
                 variant="gold"
                 onClick={reviewInWallet}
                 disabled={
-                  !publicKey ||
                   !paymentIsValid ||
                   state === "awaiting-wallet-approval" ||
                   state === "confirming-on-casper"
                 }
-                loading={
-                  state === "awaiting-wallet-approval" ||
-                  state === "confirming-on-casper"
-                }
               >
-                Review in wallet
+                Validate payload only
               </Button>
             </div>
           </div>
