@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --import tsx --test tests/lead-agent.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "contracts:artifact-root": "node --import tsx contracts/build-dossier-registry/scripts/compute-artifact-root.ts"
   },
   "dependencies": {
+    "casper-js-sdk": "^5.0.12",
     "clsx": "2.1.1",
     "framer-motion": "^12.41.0",
     "lucide-react": "0.468.0",
