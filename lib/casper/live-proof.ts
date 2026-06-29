@@ -4,16 +4,20 @@ export const CSPR_LIVE_TESTNET_DEPLOY_URL =
   "https://testnet.cspr.live/deploy" as const;
 
 export type LiveProofAnchorState =
+  | "not-anchored"
   | "ready"
-  | "wallet-connecting"
+  | "connecting-wallet"
+  | "wallet-connected"
   | "reviewing"
   | "awaiting-wallet-approval"
+  | "signing-cancelled"
+  | "signed"
+  | "submitting"
   | "submitted"
-  | "confirming-on-casper"
+  | "verifying"
   | "confirmed"
-  | "rejected"
-  | "failed"
-  | "unverified";
+  | "unverified"
+  | "failed";
 
 export type AnchorVerificationInput = {
   transactionHash: string;
