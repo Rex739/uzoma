@@ -1,41 +1,42 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { afterEach, test } from "node:test";
+import * as casperSdkModule from "casper-js-sdk";
 import {
   getCsprLiveDeployUrl,
   isLegacyDossier,
   isValidMotesPaymentAmount,
 } from "@/lib/casper/live-proof";
 import {
-  CSPRCLICK_RUNTIME_LOADER_STRATEGY,
-  CSPRCLICK_RUNTIME_VERSION,
-  checkCsprClickRuntimeApi,
-  getCsprClickConfigIssue,
-  getLoadedCsprClickRuntime,
-  getCsprClickRuntimeDiagnostics,
-  getCsprClickRuntimeStatus,
-  inspectProviderAvailability,
-  inspectTransactionV1Capability,
-  loadCsprClickRuntime,
+  CasperWalletClientError,
+  connectNativeCasperWallet,
+  detectNativeCasperWalletProvider,
+  normalizeWalletSignature,
+  signWithNativeCasperWallet,
   supportsTransactionV1,
-} from "@/lib/casper/csprclick-client";
-import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-transaction";
+} from "@/lib/casper/casper-wallet-client";
+import {
+  applyWalletSignatureToAnchorTransaction,
+  assertAnchorTransactionIntegrity,
+  buildAnchorDossierUnsignedTransaction,
+  checkCasperTestnetRpcBrowserReadiness,
+  LIVE_PROOF_ANCHOR_CONFIG,
+} from "@/lib/casper/live-proof-transaction";
 import { verifyAnchorReadOnly } from "@/lib/casper/verify-anchor";
 import { applyDossierIntegrity } from "@/lib/dossiers/evidence-integrity";
 import { artifactFor, seedState } from "@/lib/mock-data";
 import type { BuildDossier } from "@/lib/types";
 
 const originalFetch = globalThis.fetch;
-const originalCSPRClickAppId = process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+const CasperSdk = (
+  "default" in casperSdkModule
+    ? casperSdkModule.default
+    : casperSdkModule
+) as typeof casperSdkModule;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (originalCSPRClickAppId === undefined) {
-    delete process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
-  } else {
-    process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = originalCSPRClickAppId;
-  }
   if (originalWindow) {
     Object.defineProperty(globalThis, "window", originalWindow);
   } else {
@@ -43,80 +44,60 @@ afterEach(() => {
   }
 });
 
-function installFakeWindow(csprclick?: Record<string, unknown>) {
+function installFakeWindow(providerFactory?: () => unknown) {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      csprclick,
+      CasperWalletProvider: providerFactory,
       setTimeout,
       clearTimeout,
-      document: {
-        getElementById: () => null,
-        getElementsByTagName: () => [
-          {
-            parentNode: {
-              insertBefore: () => undefined,
-            },
-          },
-        ],
-        createElement: () => ({
-          set id(_value: string) {},
-          set src(_value: string) {},
-          set async(_value: boolean) {},
-          set onerror(_value: () => void) {},
-          set onload(_value: () => void) {},
-        }),
-      },
     },
   });
 }
 
-function fakeSdk({
-  present = true,
+function fakeProvider({
+  requestConnection = async () => true,
+  isConnected = async () => true,
+  publicKey = "011111111111111111111111111111111111111111111111111111111111111111",
   supports = ["sign-transactionv1"],
+  sign = async () => ({ cancelled: true as const }),
 }: {
-  present?: boolean;
+  requestConnection?: () => Promise<boolean>;
+  isConnected?: () => Promise<boolean>;
+  publicKey?: string;
   supports?: string[];
+  sign?: (transactionJson: string, publicKeyHex: string) => Promise<unknown>;
 } = {}) {
   const calls = {
-    init: 0,
-    isProviderPresent: 0,
-    getProviderInfo: 0,
-    connect: 0,
-    send: 0,
+    requestConnection: 0,
+    isConnected: 0,
+    getActivePublicKey: 0,
+    getActivePublicKeySupports: 0,
     sign: 0,
   };
   return {
     calls,
-    sdk: {
-      init: () => {
-        calls.init += 1;
+    provider: {
+      requestConnection: async () => {
+        calls.requestConnection += 1;
+        return requestConnection();
       },
-      once: () => undefined,
-      isProviderPresent: () => {
-        calls.isProviderPresent += 1;
-        return present;
+      isConnected: async () => {
+        calls.isConnected += 1;
+        return isConnected();
       },
-      getProviderInfo: async () => {
-        calls.getProviderInfo += 1;
-        return {
-          key: "casper-wallet",
-          name: "Casper Wallet",
-          version: "mock",
-          supports,
-        };
+      getActivePublicKey: async () => {
+        calls.getActivePublicKey += 1;
+        return publicKey;
       },
-      connect: async () => {
-        calls.connect += 1;
-        return undefined;
+      getActivePublicKeySupports: async () => {
+        calls.getActivePublicKeySupports += 1;
+        return supports;
       },
-      send: async () => {
-        calls.send += 1;
-        return undefined;
-      },
-      sign: async () => {
+      getVersion: async () => "2.4.3-test",
+      sign: async (transactionJson: string, publicKeyHex: string) => {
         calls.sign += 1;
-        return undefined;
+        return sign(transactionJson, publicKeyHex);
       },
     },
   };
@@ -237,134 +218,189 @@ test("payment amount must be deliberately supplied", () => {
   assert.equal(isValidMotesPaymentAmount("20000000000"), true);
 });
 
-test("CSPR.click diagnostics are SSR-safe and do not initialize a wallet", async () => {
-  delete process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
-  const diagnostics = getCsprClickRuntimeDiagnostics();
-  assert.equal(diagnostics.configured, false);
-  assert.equal(diagnostics.browserRuntime, false);
-  assert.equal(diagnostics.globalClientPresent, false);
-  assert.equal(diagnostics.runtimeVersion, CSPRCLICK_RUNTIME_VERSION);
-  assert.equal(diagnostics.loaderStrategy, CSPRCLICK_RUNTIME_LOADER_STRATEGY);
-  assert.equal(diagnostics.providerKey, "casper-wallet");
-  assert.equal(diagnostics.requiredSupport, "sign-transactionv1");
-  assert.equal(getCsprClickConfigIssue(), "CSPR.click app ID is not configured.");
+test("native Casper Wallet detection is SSR-safe and does not connect", async () => {
   await assert.rejects(
-    loadCsprClickRuntime(),
-    /immutable runtime URL/i,
+    detectNativeCasperWalletProvider({ timeoutMs: 0 }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_PROVIDER_UNSUPPORTED",
   );
 });
 
-test("absent browser runtime is reported without loading a wallet", () => {
-  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
-  installFakeWindow();
-  const diagnostics = getCsprClickRuntimeDiagnostics();
-  assert.equal(diagnostics.browserRuntime, true);
-  assert.equal(diagnostics.globalClientPresent, false);
-  assert.equal(diagnostics.apiCheck.compatible, false);
-  assert.equal(getCsprClickRuntimeStatus(), "runtime-loader-blocked");
-});
-
-test("missing app ID remains recoverable even in a browser context", async () => {
-  delete process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
-  installFakeWindow();
-  assert.equal(getCsprClickRuntimeStatus(), "app-id-missing");
-  await assert.rejects(loadCsprClickRuntime(), /immutable runtime URL/i);
-});
-
-test("runtime API guard distinguishes unsupported and compatible shapes", () => {
-  assert.deepEqual(checkCsprClickRuntimeApi(undefined).missingMethods, [
-    "init",
-    "isProviderPresent",
-    "getProviderInfo",
-    "connect",
-    "send",
-  ]);
-  const { sdk } = fakeSdk();
-  const check = checkCsprClickRuntimeApi(sdk);
-  assert.equal(check.compatible, true);
-  assert.deepEqual(check.missingMethods, []);
-});
-
-test("loaded runtime can be inspected without connect, sign, or send", async () => {
-  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
-  const { sdk, calls } = fakeSdk({ present: true });
-  installFakeWindow(sdk);
-  const loaded = getLoadedCsprClickRuntime();
-  assert.ok(loaded);
-  assert.equal(getCsprClickRuntimeStatus(), "runtime-api-compatible");
-  assert.equal(inspectProviderAvailability(loaded), "available");
-  assert.equal(await inspectTransactionV1Capability(loaded), "supported");
-  assert.equal(calls.connect, 0);
-  assert.equal(calls.send, 0);
+test("extension initially absent then available within retry window", async () => {
+  const { provider, calls } = fakeProvider();
+  let available = false;
+  installFakeWindow(() => (available ? provider : undefined));
+  setTimeout(() => {
+    available = true;
+  }, 20);
+  const detected = await detectNativeCasperWalletProvider({
+    timeoutMs: 200,
+    intervalMs: 10,
+  });
+  assert.equal(detected, provider);
+  assert.equal(calls.requestConnection, 0);
   assert.equal(calls.sign, 0);
 });
 
-test("provider absence is detected without connect", () => {
-  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
-  const { sdk, calls } = fakeSdk({ present: false });
-  installFakeWindow(sdk);
-  const loaded = getLoadedCsprClickRuntime();
-  assert.ok(loaded);
-  assert.equal(inspectProviderAvailability(loaded), "unavailable");
-  assert.equal(getCsprClickRuntimeStatus(), "provider-unavailable");
-  assert.equal(calls.connect, 0);
-  assert.equal(calls.send, 0);
+test("wallet unavailable and unsupported provider shape are recoverable", async () => {
+  installFakeWindow();
+  await assert.rejects(
+    detectNativeCasperWalletProvider({ timeoutMs: 0 }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_NOT_INSTALLED",
+  );
+  installFakeWindow(() => ({ requestConnection: async () => true }));
+  await assert.rejects(
+    detectNativeCasperWalletProvider({ timeoutMs: 0 }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_PROVIDER_UNSUPPORTED",
+  );
+});
+
+test("locked wallet, declined connection, and missing active key are explicit", async () => {
+  installFakeWindow(() =>
+    fakeProvider({
+      requestConnection: async () => {
+        throw new Error("Wallet locked");
+      },
+    }).provider,
+  );
+  await assert.rejects(
+    connectNativeCasperWallet(),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_LOCKED",
+  );
+
+  installFakeWindow(() =>
+    fakeProvider({ requestConnection: async () => false }).provider,
+  );
+  await assert.rejects(
+    connectNativeCasperWallet(),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_CONNECTION_DECLINED",
+  );
+
+  installFakeWindow(() => fakeProvider({ publicKey: "" }).provider);
+  await assert.rejects(
+    connectNativeCasperWallet(),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_NO_ACTIVE_ACCOUNT",
+  );
+});
+
+test("successful connection requires sign-transactionv1 support", async () => {
+  installFakeWindow(() => fakeProvider({ supports: ["sign-deploy"] }).provider);
+  await assert.rejects(
+    connectNativeCasperWallet(),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_TRANSACTION_V1_UNSUPPORTED",
+  );
+
+  const { provider, calls } = fakeProvider();
+  installFakeWindow(() => provider);
+  const connection = await connectNativeCasperWallet();
+  assert.equal(connection.publicKey.startsWith("01"), true);
+  assert.equal(supportsTransactionV1(connection.supports), true);
+  assert.equal(calls.requestConnection, 1);
   assert.equal(calls.sign, 0);
 });
 
-test("provider metadata can report TransactionV1 as unknown or unsupported", async () => {
-  const unsupported = fakeSdk({ supports: ["sign-deploy"] });
-  assert.equal(
-    await inspectTransactionV1Capability(unsupported.sdk as never),
-    "unsupported",
-  );
-  const missingInfo = {
-    ...unsupported.sdk,
-    getProviderInfo: async () => undefined,
-  };
-  assert.equal(
-    await inspectTransactionV1Capability(missingInfo as never),
-    "unknown",
-  );
-  assert.equal(unsupported.calls.connect, 0);
-  assert.equal(unsupported.calls.send, 0);
-  assert.equal(unsupported.calls.sign, 0);
+test("no sign request occurs before explicit sign call", async () => {
+  const { provider, calls } = fakeProvider();
+  installFakeWindow(() => provider);
+  await connectNativeCasperWallet();
+  assert.equal(calls.sign, 0);
 });
 
-test("internal diagnostics route has a production-neutral safeguard", () => {
-  const source = fs.readFileSync(
-    "app/internal/live-proof-diagnostics/page.tsx",
-    "utf8",
+test("signing cancellation does not become failure", async () => {
+  const { provider } = fakeProvider({
+    sign: async () => ({ cancelled: true, message: "User cancelled" }),
+  });
+  await assert.rejects(
+    signWithNativeCasperWallet({
+      provider: provider as never,
+      transactionJson: "{}",
+      signingPublicKeyHex: "01abc",
+    }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_SIGNING_CANCELLED",
   );
-  assert.match(source, /process\.env\.NODE_ENV === "production"/);
-  assert.match(source, /Live proof diagnostics unavailable/);
 });
 
-test("TransactionV1 capability check uses the CSPR.click provider support string", () => {
-  assert.equal(
-    supportsTransactionV1({
-      provider: "casper-wallet",
-      providerSupports: ["sign-transactionv1"],
-      public_key: "01abc",
-      connected_at: 0,
-      name: null,
-      token: null,
-      custom: {},
-    }),
-    true,
+test("malformed signature blocks submission", () => {
+  assert.throws(
+    () => normalizeWalletSignature({ cancelled: false, signatureHex: "not-hex" }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_SIGNING_ERROR",
   );
-  assert.equal(
-    supportsTransactionV1({
-      provider: "casper-wallet",
-      providerSupports: ["sign-deploy"],
-      public_key: "01abc",
-      connected_at: 0,
-      name: null,
-      token: null,
-      custom: {},
-    }),
-    false,
+});
+
+test("signed transaction preserves package-call fields and signer", async () => {
+  const key = CasperSdk.PrivateKey.generate(CasperSdk.KeyAlgorithm.ED25519);
+  const unsigned = buildAnchorDossierUnsignedTransaction({
+    signerPublicKey: key.publicKey.toHex(),
+    jobId: "demo-escrow",
+    dossierHash:
+      "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+    artifactRootHash:
+      "sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4",
+    artifactCount: 4,
+    paymentAmount: "20000000000",
+  });
+  assertAnchorTransactionIntegrity({
+    transaction: unsigned.transaction,
+    expected: unsigned.payloadPreview,
+  });
+  const signature = await key.rawSign(unsigned.transaction.hash.toBytes());
+  const signed = applyWalletSignatureToAnchorTransaction({
+    transaction: unsigned.transaction,
+    signature,
+    signingPublicKeyHex: key.publicKey.toHex(),
+    expected: unsigned.payloadPreview,
+  });
+  const json = signed.toJSON() as { approvals?: unknown[] };
+  assert.equal(json.approvals?.length, 1);
+});
+
+test("direct browser RPC readiness distinguishes CORS/RPC blockers", async () => {
+  globalThis.fetch = (async () =>
+    Response.json({
+      jsonrpc: "2.0",
+      result: { chainspec_name: "casper-test" },
+    })) as typeof fetch;
+  assert.deepEqual(
+    await checkCasperTestnetRpcBrowserReadiness("https://example.test/rpc"),
+    {
+      chainName: "casper-test",
+      corsReady: true,
+    },
   );
+
+  globalThis.fetch = (async () => {
+    throw new TypeError("Failed to fetch");
+  }) as typeof fetch;
+  await assert.rejects(
+    checkCasperTestnetRpcBrowserReadiness("https://example.test/rpc"),
+    /Failed to fetch/,
+  );
+});
+
+test("no CSPR.click runtime, dependency, or environment configuration remains", () => {
+  const packageJson = fs.readFileSync("package.json", "utf8");
+  const envExample = fs.readFileSync(".env.example", "utf8");
+  assert.equal(packageJson.includes("csprclick"), false);
+  assert.equal(envExample.includes("CSPRCLICK"), false);
+  assert.equal(fs.existsSync("lib/casper/csprclick-client.ts"), false);
+  assert.equal(fs.existsSync("components/live-proof-diagnostics.tsx"), false);
 });
 
 test("CSPR.live link is deterministic and only needs a confirmed hash", () => {

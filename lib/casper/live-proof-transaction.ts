@@ -46,6 +46,16 @@ export type TransactionV1Json = {
   Version1: unknown;
 };
 
+export type AnchorDossierUnsignedTransaction = {
+  transaction: CasperSdkTypes.Transaction;
+  walletTransactionJson: unknown;
+  walletTransactionJsonString: string;
+  transactionV1Json: TransactionV1Json;
+  payloadPreview: AnchorDossierPayloadPreview;
+  transactionHash: string;
+  unsigned: true;
+};
+
 export type AnchorDossierTransactionResult = {
   transactionV1Json: TransactionV1Json;
   payloadPreview: AnchorDossierPayloadPreview;
@@ -85,6 +95,18 @@ function parseSignerPublicKey(value: string) {
 export function buildAnchorDossierTransaction(
   input: AnchorDossierTransactionInput,
 ): AnchorDossierTransactionResult {
+  const result = buildAnchorDossierUnsignedTransaction(input);
+  return {
+    transactionV1Json: result.transactionV1Json,
+    payloadPreview: result.payloadPreview,
+    transactionHash: result.transactionHash,
+    unsigned: true,
+  };
+}
+
+export function buildAnchorDossierUnsignedTransaction(
+  input: AnchorDossierTransactionInput,
+): AnchorDossierUnsignedTransaction {
   const signerPublicKey = parseSignerPublicKey(input.signerPublicKey);
   const jobId = requireNonEmpty(input.jobId, "jobId");
   const dossierHash = requireNonEmpty(input.dossierHash, "dossierHash");
@@ -118,23 +140,225 @@ export function buildAnchorDossierTransaction(
     throw new Error("Casper SDK did not build a TransactionV1");
   }
   transaction.validate();
+  const walletTransactionJson = transaction.toJSON();
+  const payloadPreview = {
+    packageHash: LIVE_PROOF_ANCHOR_CONFIG.packageHash,
+    chain: LIVE_PROOF_ANCHOR_CONFIG.chainName,
+    entryPoint: LIVE_PROOF_ANCHOR_CONFIG.entryPoint,
+    jobId,
+    dossierHash,
+    artifactRootHash,
+    artifactCount: input.artifactCount,
+    signerPublicKey: signerPublicKey.toHex(),
+    paymentAmount: paymentAmount.text,
+  };
 
   return {
     transactionV1Json: {
-      Version1: transaction.toJSON(),
+      Version1: walletTransactionJson,
     },
+    walletTransactionJson,
+    walletTransactionJsonString: JSON.stringify(walletTransactionJson),
     transactionHash: transaction.hash.toHex(),
     unsigned: true,
-    payloadPreview: {
-      packageHash: LIVE_PROOF_ANCHOR_CONFIG.packageHash,
-      chain: LIVE_PROOF_ANCHOR_CONFIG.chainName,
-      entryPoint: LIVE_PROOF_ANCHOR_CONFIG.entryPoint,
-      jobId,
-      dossierHash,
-      artifactRootHash,
-      artifactCount: input.artifactCount,
-      signerPublicKey: signerPublicKey.toHex(),
-      paymentAmount: paymentAmount.text,
-    },
+    payloadPreview,
+    transaction,
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function namedArgsFromWalletJson(walletTransactionJson: unknown) {
+  const named = asRecord(asRecord(asRecord(walletTransactionJson)?.payload)?.fields)
+    ?.args;
+  const items = asRecord(named)?.Named;
+  return new Map(
+    Array.isArray(items)
+      ? items.flatMap((item) =>
+          Array.isArray(item) && typeof item[0] === "string"
+            ? ([[item[0], item[1]]] as const)
+            : [],
+        )
+      : [],
+  );
+}
+
+function stringAt(value: unknown, path: string[]) {
+  let current: unknown = value;
+  for (const part of path) current = asRecord(current)?.[part];
+  return typeof current === "string" ? current : undefined;
+}
+
+function numberAt(value: unknown, path: string[]) {
+  let current: unknown = value;
+  for (const part of path) current = asRecord(current)?.[part];
+  return typeof current === "number" ? current : undefined;
+}
+
+function bytesArg(args: Map<string, unknown>, name: string) {
+  const bytes = asRecord(args.get(name))?.bytes;
+  return typeof bytes === "string" ? bytes : undefined;
+}
+
+function expectedStringBytes(value: string) {
+  const encoded = new TextEncoder().encode(value);
+  const length = new Uint8Array(4);
+  new DataView(length.buffer).setUint32(0, encoded.length, true);
+  return [...length, ...encoded]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function expectedU32Bytes(value: number) {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, true);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function assertAnchorTransactionIntegrity({
+  transaction,
+  expected,
+  requireSignature = false,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  expected: AnchorDossierPayloadPreview;
+  requireSignature?: boolean;
+}) {
+  const walletJson = transaction.toJSON();
+  const args = namedArgsFromWalletJson(walletJson);
+  const approvals = asRecord(walletJson)?.approvals;
+  const approvalSigner = Array.isArray(approvals)
+    ? approvals
+        .map((approval) => asRecord(approval)?.signer)
+        .find((signer): signer is string => typeof signer === "string")
+    : undefined;
+
+  const failures = [
+    stringAt(walletJson, ["payload", "chain_name"]) === expected.chain
+      ? undefined
+      : "chain name mismatch",
+    stringAt(walletJson, [
+      "payload",
+      "fields",
+      "target",
+      "Stored",
+      "id",
+      "ByPackageHash",
+      "addr",
+    ]) === LIVE_PROOF_ANCHOR_CONFIG.packageHashBytes
+      ? undefined
+      : "package hash mismatch",
+    stringAt(walletJson, ["payload", "fields", "target", "Stored", "runtime"]) ===
+    LIVE_PROOF_ANCHOR_CONFIG.runtime
+      ? undefined
+      : "runtime mismatch",
+    stringAt(walletJson, ["payload", "fields", "entry_point", "Custom"]) ===
+    expected.entryPoint
+      ? undefined
+      : "entry point mismatch",
+    bytesArg(args, "job_id") === expectedStringBytes(expected.jobId)
+      ? undefined
+      : "job ID mismatch",
+    bytesArg(args, "dossier_hash") === expectedStringBytes(expected.dossierHash)
+      ? undefined
+      : "dossier hash mismatch",
+    bytesArg(args, "artifact_root_hash") ===
+    expectedStringBytes(expected.artifactRootHash)
+      ? undefined
+      : "artifact root mismatch",
+    bytesArg(args, "artifact_count") === expectedU32Bytes(expected.artifactCount)
+      ? undefined
+      : "artifact count mismatch",
+    String(
+      numberAt(walletJson, [
+        "payload",
+        "pricing_mode",
+        "PaymentLimited",
+        "payment_amount",
+      ]),
+    ) === expected.paymentAmount
+      ? undefined
+      : "payment amount mismatch",
+    requireSignature &&
+    approvalSigner?.toLowerCase() !== expected.signerPublicKey.toLowerCase()
+      ? "signature signer mismatch"
+      : undefined,
+  ].filter((failure): failure is string => Boolean(failure));
+
+  if (failures.length > 0) {
+    throw new Error(`Anchor transaction integrity failed: ${failures.join(", ")}`);
+  }
+  if (!requireSignature) {
+    transaction.validate();
+  }
+}
+
+export function applyWalletSignatureToAnchorTransaction({
+  transaction,
+  signature,
+  signingPublicKeyHex,
+  expected,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  signature: Uint8Array;
+  signingPublicKeyHex: string;
+  expected: AnchorDossierPayloadPreview;
+}) {
+  if (signingPublicKeyHex.toLowerCase() !== expected.signerPublicKey.toLowerCase()) {
+    throw new Error("Connected public key does not match transaction initiator.");
+  }
+  transaction.setSignature(signature, CasperSdk.PublicKey.fromHex(signingPublicKeyHex));
+  assertAnchorTransactionIntegrity({
+    transaction,
+    expected,
+    requireSignature: true,
+  });
+  return transaction;
+}
+
+export async function checkCasperTestnetRpcBrowserReadiness(rpcUrl: string) {
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: Date.now(),
+      method: "info_get_status",
+      params: {},
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Casper Testnet RPC readiness failed: HTTP ${response.status}`);
+  }
+  const json = (await response.json()) as {
+    result?: { chainspec_name?: string };
+    error?: { message?: string };
+  };
+  if (json.error) {
+    throw new Error(json.error.message || "Casper Testnet RPC readiness failed.");
+  }
+  if (json.result?.chainspec_name !== LIVE_PROOF_ANCHOR_CONFIG.chainName) {
+    throw new Error("Casper Testnet RPC returned an unexpected chain name.");
+  }
+  return {
+    chainName: json.result.chainspec_name,
+    corsReady: true,
+  };
+}
+
+export async function submitSignedAnchorTransaction({
+  transaction,
+  rpcUrl,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  rpcUrl: string;
+}) {
+  const handler = new CasperSdk.HttpHandler(rpcUrl, "fetch");
+  const rpcClient = new CasperSdk.RpcClient(handler);
+  const result = await rpcClient.putTransaction(transaction);
+  return result.transactionHash.toHex();
 }
