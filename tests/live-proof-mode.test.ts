@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { afterEach, test } from "node:test";
 import {
   getCsprLiveDeployUrl,
@@ -6,9 +7,16 @@ import {
   isValidMotesPaymentAmount,
 } from "@/lib/casper/live-proof";
 import {
-  createCsprClickWalletClient,
+  CSPRCLICK_RUNTIME_LOADER_STRATEGY,
+  CSPRCLICK_RUNTIME_VERSION,
+  checkCsprClickRuntimeApi,
   getCsprClickConfigIssue,
+  getLoadedCsprClickRuntime,
   getCsprClickRuntimeDiagnostics,
+  getCsprClickRuntimeStatus,
+  inspectProviderAvailability,
+  inspectTransactionV1Capability,
+  loadCsprClickRuntime,
   supportsTransactionV1,
 } from "@/lib/casper/csprclick-client";
 import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-transaction";
@@ -19,6 +27,7 @@ import type { BuildDossier } from "@/lib/types";
 
 const originalFetch = globalThis.fetch;
 const originalCSPRClickAppId = process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -27,7 +36,91 @@ afterEach(() => {
   } else {
     process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = originalCSPRClickAppId;
   }
+  if (originalWindow) {
+    Object.defineProperty(globalThis, "window", originalWindow);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
 });
+
+function installFakeWindow(csprclick?: Record<string, unknown>) {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      csprclick,
+      setTimeout,
+      clearTimeout,
+      document: {
+        getElementById: () => null,
+        getElementsByTagName: () => [
+          {
+            parentNode: {
+              insertBefore: () => undefined,
+            },
+          },
+        ],
+        createElement: () => ({
+          set id(_value: string) {},
+          set src(_value: string) {},
+          set async(_value: boolean) {},
+          set onerror(_value: () => void) {},
+          set onload(_value: () => void) {},
+        }),
+      },
+    },
+  });
+}
+
+function fakeSdk({
+  present = true,
+  supports = ["sign-transactionv1"],
+}: {
+  present?: boolean;
+  supports?: string[];
+} = {}) {
+  const calls = {
+    init: 0,
+    isProviderPresent: 0,
+    getProviderInfo: 0,
+    connect: 0,
+    send: 0,
+    sign: 0,
+  };
+  return {
+    calls,
+    sdk: {
+      init: () => {
+        calls.init += 1;
+      },
+      once: () => undefined,
+      isProviderPresent: () => {
+        calls.isProviderPresent += 1;
+        return present;
+      },
+      getProviderInfo: async () => {
+        calls.getProviderInfo += 1;
+        return {
+          key: "casper-wallet",
+          name: "Casper Wallet",
+          version: "mock",
+          supports,
+        };
+      },
+      connect: async () => {
+        calls.connect += 1;
+        return undefined;
+      },
+      send: async () => {
+        calls.send += 1;
+        return undefined;
+      },
+      sign: async () => {
+        calls.sign += 1;
+        return undefined;
+      },
+    },
+  };
+}
 
 function writeU32(value: number) {
   const buffer = Buffer.alloc(4);
@@ -150,13 +243,101 @@ test("CSPR.click diagnostics are SSR-safe and do not initialize a wallet", async
   assert.equal(diagnostics.configured, false);
   assert.equal(diagnostics.browserRuntime, false);
   assert.equal(diagnostics.globalClientPresent, false);
+  assert.equal(diagnostics.runtimeVersion, CSPRCLICK_RUNTIME_VERSION);
+  assert.equal(diagnostics.loaderStrategy, CSPRCLICK_RUNTIME_LOADER_STRATEGY);
   assert.equal(diagnostics.providerKey, "casper-wallet");
   assert.equal(diagnostics.requiredSupport, "sign-transactionv1");
   assert.equal(getCsprClickConfigIssue(), "CSPR.click app ID is not configured.");
   await assert.rejects(
-    createCsprClickWalletClient(),
-    /only available in the browser/,
+    loadCsprClickRuntime(),
+    /immutable runtime URL/i,
   );
+});
+
+test("absent browser runtime is reported without loading a wallet", () => {
+  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
+  installFakeWindow();
+  const diagnostics = getCsprClickRuntimeDiagnostics();
+  assert.equal(diagnostics.browserRuntime, true);
+  assert.equal(diagnostics.globalClientPresent, false);
+  assert.equal(diagnostics.apiCheck.compatible, false);
+  assert.equal(getCsprClickRuntimeStatus(), "runtime-loader-blocked");
+});
+
+test("missing app ID remains recoverable even in a browser context", async () => {
+  delete process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID;
+  installFakeWindow();
+  assert.equal(getCsprClickRuntimeStatus(), "app-id-missing");
+  await assert.rejects(loadCsprClickRuntime(), /immutable runtime URL/i);
+});
+
+test("runtime API guard distinguishes unsupported and compatible shapes", () => {
+  assert.deepEqual(checkCsprClickRuntimeApi(undefined).missingMethods, [
+    "init",
+    "isProviderPresent",
+    "getProviderInfo",
+    "connect",
+    "send",
+  ]);
+  const { sdk } = fakeSdk();
+  const check = checkCsprClickRuntimeApi(sdk);
+  assert.equal(check.compatible, true);
+  assert.deepEqual(check.missingMethods, []);
+});
+
+test("loaded runtime can be inspected without connect, sign, or send", async () => {
+  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
+  const { sdk, calls } = fakeSdk({ present: true });
+  installFakeWindow(sdk);
+  const loaded = getLoadedCsprClickRuntime();
+  assert.ok(loaded);
+  assert.equal(getCsprClickRuntimeStatus(), "runtime-api-compatible");
+  assert.equal(inspectProviderAvailability(loaded), "available");
+  assert.equal(await inspectTransactionV1Capability(loaded), "supported");
+  assert.equal(calls.connect, 0);
+  assert.equal(calls.send, 0);
+  assert.equal(calls.sign, 0);
+});
+
+test("provider absence is detected without connect", () => {
+  process.env.NEXT_PUBLIC_CSPRCLICK_APP_ID = "test-app";
+  const { sdk, calls } = fakeSdk({ present: false });
+  installFakeWindow(sdk);
+  const loaded = getLoadedCsprClickRuntime();
+  assert.ok(loaded);
+  assert.equal(inspectProviderAvailability(loaded), "unavailable");
+  assert.equal(getCsprClickRuntimeStatus(), "provider-unavailable");
+  assert.equal(calls.connect, 0);
+  assert.equal(calls.send, 0);
+  assert.equal(calls.sign, 0);
+});
+
+test("provider metadata can report TransactionV1 as unknown or unsupported", async () => {
+  const unsupported = fakeSdk({ supports: ["sign-deploy"] });
+  assert.equal(
+    await inspectTransactionV1Capability(unsupported.sdk as never),
+    "unsupported",
+  );
+  const missingInfo = {
+    ...unsupported.sdk,
+    getProviderInfo: async () => undefined,
+  };
+  assert.equal(
+    await inspectTransactionV1Capability(missingInfo as never),
+    "unknown",
+  );
+  assert.equal(unsupported.calls.connect, 0);
+  assert.equal(unsupported.calls.send, 0);
+  assert.equal(unsupported.calls.sign, 0);
+});
+
+test("internal diagnostics route has a production-neutral safeguard", () => {
+  const source = fs.readFileSync(
+    "app/internal/live-proof-diagnostics/page.tsx",
+    "utf8",
+  );
+  assert.match(source, /process\.env\.NODE_ENV === "production"/);
+  assert.match(source, /Live proof diagnostics unavailable/);
 });
 
 test("TransactionV1 capability check uses the CSPR.click provider support string", () => {

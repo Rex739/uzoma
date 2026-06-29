@@ -1,42 +1,75 @@
 "use client";
 
-import type { CSPRClickSDK } from "@make-software/csprclick-core-client/sdk";
-import type { AccountType } from "@make-software/csprclick-core-types";
-import { ProviderInfoSupports } from "@make-software/csprclick-core-types/wallets";
+import type {
+  AccountType,
+  ICSPRClickSDK,
+} from "@make-software/csprclick-core-types";
+import {
+  ProviderInfoSupports,
+  WALLET_KEYS,
+} from "@make-software/csprclick-core-types/wallets";
 import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-transaction";
 
-const APP_NAME = "Uzoma";
-const CASPER_WALLET_PROVIDER = "casper-wallet";
+const CASPER_WALLET_PROVIDER = WALLET_KEYS.CASPER_WALLET;
 const SIGN_TRANSACTION_V1_SUPPORT = ProviderInfoSupports.SignTransactionV1;
+
+export const CSPRCLICK_RUNTIME_VERSION = "2.1" as const;
+export const CSPRCLICK_RUNTIME_LOADER_STRATEGY =
+  "blocked-no-official-immutable-runtime-url" as const;
+
+const REQUIRED_RUNTIME_METHODS = [
+  "init",
+  "isProviderPresent",
+  "getProviderInfo",
+  "connect",
+  "send",
+] as const;
+
+type RequiredRuntimeMethod = (typeof REQUIRED_RUNTIME_METHODS)[number];
 
 declare global {
   interface Window {
-    csprclick?: CSPRClickSDK;
+    csprclick?: unknown;
   }
 }
 
-export type CsprClickWalletClient = {
-  sdk: CSPRClickSDK;
-  providerKey: typeof CASPER_WALLET_PROVIDER;
-  requiredSupport: typeof SIGN_TRANSACTION_V1_SUPPORT;
+export type CsprClickRuntimeApiCheck = {
+  compatible: boolean;
+  missingMethods: RequiredRuntimeMethod[];
+  methods: Record<RequiredRuntimeMethod, boolean>;
 };
 
-export type WalletConnectionResult = {
-  account: AccountType;
-  publicKey: string;
-  supportsTransactionV1: boolean;
-};
+export type CsprClickProviderAvailability =
+  | "available"
+  | "unavailable"
+  | "unknown";
 
 export type CsprClickRuntimeDiagnostics = {
   configured: boolean;
   appIdPresent: boolean;
   browserRuntime: boolean;
   globalClientPresent: boolean;
+  runtimeVersion: typeof CSPRCLICK_RUNTIME_VERSION;
+  loaderStrategy: typeof CSPRCLICK_RUNTIME_LOADER_STRATEGY;
+  officialImmutableLoaderVerified: false;
   providerKey: typeof CASPER_WALLET_PROVIDER;
   requiredSupport: typeof SIGN_TRANSACTION_V1_SUPPORT;
   chainName: typeof LIVE_PROOF_ANCHOR_CONFIG.chainName;
   rpc: string;
+  apiCheck: CsprClickRuntimeApiCheck;
+  providerAvailability: CsprClickProviderAvailability;
+  transactionV1Capability: "not-tested" | "supported" | "unsupported" | "unknown";
 };
+
+export type CsprClickRuntimeStatus =
+  | "app-id-missing"
+  | "browser-unavailable"
+  | "runtime-loader-blocked"
+  | "runtime-unloaded"
+  | "runtime-api-unsupported"
+  | "runtime-api-compatible"
+  | "provider-unavailable"
+  | "transactionv1-unknown";
 
 export function getCsprClickConfig() {
   return {
@@ -56,68 +89,123 @@ export function getCsprClickConfigIssue() {
   return undefined;
 }
 
+function getBrowserWindow(): Window | undefined {
+  return typeof window === "undefined" ? undefined : window;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function checkCsprClickRuntimeApi(
+  runtime: unknown,
+): CsprClickRuntimeApiCheck {
+  const methods = REQUIRED_RUNTIME_METHODS.reduce(
+    (result, method) => ({
+      ...result,
+      [method]: isObject(runtime) && typeof runtime[method] === "function",
+    }),
+    {} as Record<RequiredRuntimeMethod, boolean>,
+  );
+  const missingMethods = REQUIRED_RUNTIME_METHODS.filter(
+    (method) => !methods[method],
+  );
+  return {
+    compatible: missingMethods.length === 0,
+    missingMethods,
+    methods,
+  };
+}
+
+export function getLoadedCsprClickRuntime(): ICSPRClickSDK | undefined {
+  const runtime = getBrowserWindow()?.csprclick;
+  const apiCheck = checkCsprClickRuntimeApi(runtime);
+  return apiCheck.compatible ? (runtime as ICSPRClickSDK) : undefined;
+}
+
+export function inspectProviderAvailability(
+  sdk: ICSPRClickSDK | undefined,
+): CsprClickProviderAvailability {
+  if (!sdk) return "unknown";
+  try {
+    return sdk.isProviderPresent(CASPER_WALLET_PROVIDER)
+      ? "available"
+      : "unavailable";
+  } catch {
+    return "unknown";
+  }
+}
+
+export async function inspectTransactionV1Capability(
+  sdk: ICSPRClickSDK | undefined,
+) {
+  if (!sdk) return "unknown" as const;
+  try {
+    const providerInfo = await sdk.getProviderInfo(CASPER_WALLET_PROVIDER);
+    if (!providerInfo?.supports) return "unknown" as const;
+    return providerInfo.supports.some(
+      (support) =>
+        support.toLowerCase() === SIGN_TRANSACTION_V1_SUPPORT.toLowerCase(),
+    )
+      ? ("supported" as const)
+      : ("unsupported" as const);
+  } catch {
+    return "unknown" as const;
+  }
+}
+
 export function getCsprClickRuntimeDiagnostics(): CsprClickRuntimeDiagnostics {
   const config = getCsprClickConfig();
-  const browserRuntime = typeof window !== "undefined";
+  const browserWindow = getBrowserWindow();
+  const runtime = browserWindow?.csprclick;
+  const apiCheck = checkCsprClickRuntimeApi(runtime);
+  const sdk = apiCheck.compatible ? (runtime as ICSPRClickSDK) : undefined;
   return {
     configured: Boolean(config.appId),
     appIdPresent: Boolean(config.appId),
-    browserRuntime,
-    globalClientPresent: browserRuntime ? Boolean(window.csprclick) : false,
+    browserRuntime: Boolean(browserWindow),
+    globalClientPresent: Boolean(runtime),
+    runtimeVersion: CSPRCLICK_RUNTIME_VERSION,
+    loaderStrategy: CSPRCLICK_RUNTIME_LOADER_STRATEGY,
+    officialImmutableLoaderVerified: false,
     providerKey: CASPER_WALLET_PROVIDER,
     requiredSupport: SIGN_TRANSACTION_V1_SUPPORT,
     chainName: LIVE_PROOF_ANCHOR_CONFIG.chainName,
     rpc: config.rpc,
+    apiCheck,
+    providerAvailability: inspectProviderAvailability(sdk),
+    transactionV1Capability: "not-tested",
   };
 }
 
-export async function createCsprClickWalletClient(): Promise<CsprClickWalletClient> {
-  if (typeof window === "undefined") {
-    throw new Error("Wallet integration is only available in the browser.");
-  }
+export function getCsprClickRuntimeStatus(): CsprClickRuntimeStatus {
   const configIssue = getCsprClickConfigIssue();
-  if (configIssue) throw new Error(configIssue);
+  if (configIssue) return "app-id-missing";
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return "browser-unavailable";
+  const runtime = browserWindow.csprclick;
+  if (!runtime) return "runtime-loader-blocked";
+  const apiCheck = checkCsprClickRuntimeApi(runtime);
+  if (!apiCheck.compatible) return "runtime-api-unsupported";
+  const sdk = runtime as ICSPRClickSDK;
+  const providerAvailability = inspectProviderAvailability(sdk);
+  if (providerAvailability === "unavailable") return "provider-unavailable";
+  return "runtime-api-compatible";
+}
 
-  const sdk = window.csprclick;
-  if (!sdk) {
-    throw new Error(
-      "CSPR.click wallet client is unavailable in this browser session.",
-    );
-  }
-  sdk.init({
-    appName: APP_NAME,
-    appId: getCsprClickConfig().appId,
-    contentMode: "popup",
-    providers: [CASPER_WALLET_PROVIDER],
-    chainName: LIVE_PROOF_ANCHOR_CONFIG.chainName,
-    casperNode: getCsprClickConfig().rpc,
-    logLevel: 1,
-  });
-  return {
-    sdk,
-    providerKey: CASPER_WALLET_PROVIDER,
-    requiredSupport: SIGN_TRANSACTION_V1_SUPPORT,
-  };
+export async function loadCsprClickRuntime(): Promise<ICSPRClickSDK> {
+  const loadedRuntime = getLoadedCsprClickRuntime();
+  if (loadedRuntime) return loadedRuntime;
+  throw new Error(
+    "CSPR.click runtime loading is disabled until an official immutable runtime URL is verified.",
+  );
 }
 
 export function supportsTransactionV1(account: AccountType | null | undefined) {
   return Boolean(
     account?.providerSupports?.some(
-      (support) => support.toLowerCase() === SIGN_TRANSACTION_V1_SUPPORT,
+      (support) =>
+        support.toLowerCase() === SIGN_TRANSACTION_V1_SUPPORT.toLowerCase(),
     ),
   );
-}
-
-export async function connectCasperWallet(
-  client: CsprClickWalletClient,
-): Promise<WalletConnectionResult> {
-  const account = await client.sdk.connect(client.providerKey);
-  if (!account?.public_key) {
-    throw new Error("No Casper account was returned by the wallet.");
-  }
-  return {
-    account,
-    publicKey: account.public_key,
-    supportsTransactionV1: supportsTransactionV1(account),
-  };
 }
