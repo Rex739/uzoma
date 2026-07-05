@@ -18,6 +18,7 @@ import {
   RadioTower,
   ShieldCheck,
   TestTube2,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -30,6 +31,7 @@ import {
   getJobProgress,
   jobStatusMeta,
 } from "@/lib/jobs/status";
+import { canDeleteLocalJob } from "@/lib/jobs/delete-local-job";
 import { agents } from "@/lib/mock-data";
 import type {
   BuildJob,
@@ -409,9 +411,11 @@ export function LeadAgentDecisionCard({ job }: { job: BuildJob }) {
 }
 
 export function JobDetail({ id }: { id: string }) {
-  const { state, hydrated, runNextStage, createDossier } = useAppState();
+  const { state, hydrated, runNextStage, createDossier, deleteLocalJob } =
+    useAppState();
   const router = useRouter();
   const [running, setRunning] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const job = state.jobs.find((item) => item.id === id);
   if (!hydrated) return <div className="surface h-96 animate-pulse" />;
   if (!job)
@@ -422,6 +426,7 @@ export function JobDetail({ id }: { id: string }) {
       />
     );
 
+  const jobId = job.id;
   const active = job.stages.find((stage) => stage.status === "active");
   const deliveryStages = job.stages.filter((stage) => stage.id !== "requested");
   const jobProgress = getJobProgress(job);
@@ -439,6 +444,7 @@ export function JobDetail({ id }: { id: string }) {
     dossierRecord?.casperAnchorStatus === "confirmed"
       ? getCasperProofForJob(job.id)
       : undefined;
+  const deletable = canDeleteLocalJob(job, state.dossiers);
 
   function run() {
     setRunning(true);
@@ -450,6 +456,13 @@ export function JobDetail({ id }: { id: string }) {
   async function dossier() {
     const dossierId = await createDossier(id);
     if (dossierId) router.push(`/dossier/${dossierId}`);
+  }
+  function deleteJob() {
+    const deleted = deleteLocalJob(jobId);
+    if (deleted) {
+      router.push("/jobs?deleted=local-job");
+      router.refresh();
+    }
   }
 
   return (
@@ -878,8 +891,77 @@ export function JobDetail({ id }: { id: string }) {
               </div>
             </div>
           </section>
+          {deletable && (
+            <section className="surface border-red-500/20 bg-red-500/[.025] p-5">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="eyebrow text-red-300">Local record</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    Remove this browser-only workflow when you want to recreate
+                    it through the canonical Live Proof evidence flow.
+                  </p>
+                </div>
+                <Button
+                  className="border-red-500/25 bg-red-500/[.08] text-red-200 hover:border-red-400/45 hover:bg-red-500/[.12]"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="size-3.5" />
+                  DELETE LOCAL JOB
+                </Button>
+              </div>
+            </section>
+          )}
         </aside>
       </div>
+      {deleteOpen && (
+        <div
+          aria-modal="true"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-red-500/25 bg-[#0b1119] shadow-2xl">
+            <div className="border-b border-red-500/15 p-5">
+              <div className="flex items-center gap-3">
+                <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-red-500/25 bg-red-500/[.08]">
+                  <Trash2 className="size-4 text-red-300" />
+                </div>
+                <div>
+                  <p className="eyebrow text-red-300">Delete local job</p>
+                  <h2 className="mt-1 text-base font-semibold text-white">
+                    {job.title}
+                  </h2>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="rounded-xl border border-line bg-white/[.02] p-4">
+                <p className="eyebrow">Job ID</p>
+                <p className="mt-2 break-all font-mono text-xs text-slate-300">
+                  {job.id}
+                </p>
+              </div>
+              <p className="text-sm leading-6 text-slate-400">
+                This removes the local workflow and dossier from this browser.
+                It does not affect Casper Testnet records.
+              </p>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="border border-red-500/25 bg-red-500/[.12] text-red-100 hover:bg-red-500/[.18]"
+                  onClick={deleteJob}
+                >
+                  <Trash2 className="size-4" />
+                  DELETE LOCAL JOB
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

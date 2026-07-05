@@ -15,6 +15,7 @@ import { DossierAnchorAction } from "@/components/dossier-anchor-action";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
 import { getCasperProofForJob } from "@/lib/casper/proof";
+import { getDossierReferenceCopy } from "@/lib/casper/live-proof";
 import { agents, artifactFor, criteria, defaultJob } from "@/lib/mock-data";
 import type { BuildDossier } from "@/lib/types";
 import { formatTime, shortHash } from "@/lib/utils";
@@ -57,6 +58,8 @@ function previewDossier(): BuildDossier {
     createdAt: at,
     dossierHash:
       "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+    dossierHashVersion: "legacy-static-v1",
+    artifactRootHashVersion: "legacy-static-v1",
     finalApproval: "Approved",
     localWorkflowStatus: "accepted",
     casperAnchorStatus: "confirmed",
@@ -145,6 +148,7 @@ export function DossierView({ id }: { id: string }) {
       ? getCasperProofForJob(job.id)
       : undefined;
   const liveProof = dossier.casperAnchorProof;
+  const dossierReferenceCopy = getDossierReferenceCopy(dossier);
   const exportJson = JSON.stringify(
     {
       schema: "uzoma.build-dossier.v1",
@@ -240,18 +244,20 @@ export function DossierView({ id }: { id: string }) {
                 <div className="flex items-center gap-2">
                   <Fingerprint className="size-4 text-gold" />
                   <p className="eyebrow text-gold">
-                    Deterministic dossier hash
+                    {dossierReferenceCopy.label}
                   </p>
                 </div>
                 <p className="mt-4 break-all font-mono text-sm font-semibold leading-7 text-white sm:text-base">
                   {dossier.dossierHash}
                 </p>
                 <p className="mt-3 text-[11px] leading-5 text-slate-500">
-                  Stable local reference binding the accepted brief, evidence,
-                  artifact hashes, and final approval.
+                  {dossierReferenceCopy.supportingCopy}
                 </p>
               </div>
-              <CopyButton value={dossier.dossierHash} label="Copy hash" />
+              <CopyButton
+                value={dossier.dossierHash}
+                label={dossierReferenceCopy.copyLabel}
+              />
             </div>
           </section>
           <section
