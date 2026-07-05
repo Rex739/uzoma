@@ -44,11 +44,47 @@ export function getCsprLiveDeployUrl(transactionHash: string) {
   return `${CSPR_LIVE_TESTNET_DEPLOY_URL}/${transactionHash}`;
 }
 
-export function isLegacyDossier(dossier: BuildDossier) {
+export function isPreservedDemoEscrowDossier(dossier: BuildDossier) {
+  return dossier.id === "demo-escrow" && dossier.jobId === "demo-escrow";
+}
+
+export function isLegacyStaticDossierEvidence(dossier: BuildDossier) {
   return (
     dossier.dossierHashVersion === "legacy-static-v1" ||
-    dossier.artifactRootHashVersion === "legacy-static-v1"
+    dossier.artifactRootHashVersion === "legacy-static-v1" ||
+    isPreservedDemoEscrowDossier(dossier)
   );
+}
+
+export const isLegacyDossier = isLegacyStaticDossierEvidence;
+
+export function normalizeLegacyStaticDossierEvidence(
+  dossier: BuildDossier,
+): BuildDossier {
+  if (!isPreservedDemoEscrowDossier(dossier)) return dossier;
+  return {
+    ...dossier,
+    dossierHashVersion: "legacy-static-v1",
+    artifactRootHashVersion: "legacy-static-v1",
+  };
+}
+
+export function getDossierReferenceCopy(dossier: BuildDossier) {
+  if (isLegacyStaticDossierEvidence(dossier)) {
+    return {
+      label: "LEGACY DOSSIER REFERENCE",
+      copyLabel: "Copy reference",
+      supportingCopy:
+        "Preserved historical delivery reference linked to a confirmed Casper Testnet anchor. This record predates Uzoma’s canonical Live Proof hashing system.",
+    };
+  }
+
+  return {
+    label: "DETERMINISTIC DOSSIER HASH",
+    copyLabel: "Copy hash",
+    supportingCopy:
+      "Stable local reference binding the accepted brief, evidence, artifact hashes, and final approval.",
+  };
 }
 
 export function isValidMotesPaymentAmount(value: string) {

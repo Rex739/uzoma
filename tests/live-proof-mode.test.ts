@@ -3,10 +3,12 @@ import fs from "node:fs";
 import { afterEach, test } from "node:test";
 import * as casperSdkModule from "casper-js-sdk";
 import {
+  getDossierReferenceCopy,
   getCsprLiveDeployUrl,
-  isLegacyDossier,
+  isLegacyStaticDossierEvidence,
   isValidMotesPaymentAmount,
 } from "@/lib/casper/live-proof";
+import { normalizeStoredState } from "@/components/state-provider";
 import {
   CasperWalletClientError,
   connectNativeCasperWallet,
@@ -24,8 +26,12 @@ import {
 } from "@/lib/casper/live-proof-transaction";
 import { verifyAnchorReadOnly } from "@/lib/casper/verify-anchor";
 import { applyDossierIntegrity } from "@/lib/dossiers/evidence-integrity";
+import {
+  canDeleteLocalJob,
+  deleteLocalJobFromState,
+} from "@/lib/jobs/delete-local-job";
 import { artifactFor, seedState } from "@/lib/mock-data";
-import type { BuildDossier } from "@/lib/types";
+import type { AppState, BuildDossier, BuildJob } from "@/lib/types";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -167,6 +173,16 @@ async function canonicalDossier(): Promise<BuildDossier> {
   });
 }
 
+function jobForDossier(dossier: BuildDossier, title = "User local job"): BuildJob {
+  const job = structuredClone(seedState().jobs[0]);
+  return {
+    ...job,
+    id: dossier.jobId,
+    title,
+    dossierId: dossier.id,
+  };
+}
+
 function mockRpcForVerifiedEvent(dossier: BuildDossier) {
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)) as { method: string };
@@ -207,7 +223,133 @@ function mockRpcForVerifiedEvent(dossier: BuildDossier) {
 }
 
 test("legacy demo dossier cannot use the new live anchor action", () => {
-  assert.equal(isLegacyDossier(seedState().dossiers[0]), true);
+  assert.equal(isLegacyStaticDossierEvidence(seedState().dossiers[0]), true);
+});
+
+test("dossier reference label distinguishes legacy static records from canonical hashes", async () => {
+  const legacyCopy = getDossierReferenceCopy(seedState().dossiers[0]);
+  const canonicalCopy = getDossierReferenceCopy(await canonicalDossier());
+  assert.equal(legacyCopy.label, "LEGACY DOSSIER REFERENCE");
+  assert.equal(legacyCopy.copyLabel, "Copy reference");
+  assert.equal(canonicalCopy.label, "DETERMINISTIC DOSSIER HASH");
+  assert.equal(canonicalCopy.copyLabel, "Copy hash");
+});
+
+test("hydrated demo escrow missing legacy versions is normalized without affecting canonical dossiers", async () => {
+  const canonical = await canonicalDossier();
+  const stored = seedState();
+  const staleDemo = {
+    ...stored.dossiers[0],
+    dossierHashVersion: undefined,
+    artifactRootHashVersion: undefined,
+  };
+  const normalized = normalizeStoredState({
+    ...stored,
+    dossiers: [staleDemo, canonical],
+  });
+  const demo = normalized.dossiers.find((dossier) => dossier.id === "demo-escrow");
+  const live = normalized.dossiers.find((dossier) => dossier.id === canonical.id);
+  assert.equal(demo?.dossierHashVersion, "legacy-static-v1");
+  assert.equal(demo?.artifactRootHashVersion, "legacy-static-v1");
+  assert.equal(
+    getDossierReferenceCopy(demo!).label,
+    "LEGACY DOSSIER REFERENCE",
+  );
+  assert.equal(getDossierReferenceCopy(demo!).copyLabel, "Copy reference");
+  assert.equal(isLegacyStaticDossierEvidence(live!), false);
+  assert.equal(
+    getDossierReferenceCopy(live!).label,
+    "DETERMINISTIC DOSSIER HASH",
+  );
+  assert.equal(getDossierReferenceCopy(live!).copyLabel, "Copy hash");
+});
+
+test("normal user-created local job can be deleted without network access", async () => {
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("network should not be used");
+  }) as typeof fetch;
+  const dossier = await canonicalDossier();
+  const job = jobForDossier(dossier, "Verified Construction Milestone Escrow");
+  const state: AppState = {
+    ...seedState(),
+    jobs: [job, ...seedState().jobs],
+    dossiers: [dossier, ...seedState().dossiers],
+    events: [
+      {
+        id: "evt-local-delete-test",
+        jobId: job.id,
+        type: "job.created",
+        title: "Build request created",
+        description: "Local job entered the workflow.",
+        timestamp: job.createdAt,
+      },
+      ...seedState().events,
+    ],
+  };
+  assert.equal(canDeleteLocalJob(job, state.dossiers), true);
+  const result = deleteLocalJobFromState(state, job.id);
+  assert.equal(result.deleted, true);
+  assert.equal(result.state.jobs.some((item) => item.id === job.id), false);
+  assert.equal(
+    result.state.dossiers.some((item) => item.jobId === job.id),
+    false,
+  );
+  assert.equal(result.state.events.some((item) => item.jobId === job.id), false);
+  assert.equal(
+    result.state.jobs.some((item) => item.id === "demo-escrow"),
+    true,
+  );
+  assert.equal(fetchCalls, 0);
+});
+
+test("demo escrow and confirmed anchor records cannot be deleted", async () => {
+  const seeded = seedState();
+  assert.equal(canDeleteLocalJob(seeded.jobs[0], seeded.dossiers), false);
+  assert.equal(deleteLocalJobFromState(seeded, "demo-escrow").deleted, false);
+
+  const dossier = {
+    ...(await canonicalDossier()),
+    casperAnchorStatus: "confirmed" as const,
+  };
+  const job = jobForDossier(dossier, "Confirmed local anchor");
+  const state: AppState = {
+    ...seeded,
+    jobs: [job, ...seeded.jobs],
+    dossiers: [dossier, ...seeded.dossiers],
+  };
+  assert.equal(canDeleteLocalJob(job, state.dossiers), false);
+  const result = deleteLocalJobFromState(state, job.id);
+  assert.equal(result.deleted, false);
+  assert.equal(result.state.jobs.some((item) => item.id === job.id), true);
+});
+
+test("deleting one local job preserves other local jobs and canonical evidence rules", async () => {
+  const first = await canonicalDossier();
+  const second = {
+    ...(await canonicalDossier()),
+    id: "other-local-job",
+    jobId: "other-local-job",
+  };
+  const firstJob = jobForDossier(first, "Delete me");
+  const secondJob = jobForDossier(second, "Keep me");
+  const state: AppState = {
+    ...seedState(),
+    jobs: [firstJob, secondJob, ...seedState().jobs],
+    dossiers: [first, second, ...seedState().dossiers],
+  };
+  assert.equal(canDeleteLocalJob(firstJob, state.dossiers), true);
+  assert.equal(canDeleteLocalJob(secondJob, state.dossiers), true);
+  const result = deleteLocalJobFromState(state, firstJob.id);
+  assert.equal(result.deleted, true);
+  assert.equal(result.state.jobs.some((item) => item.id === firstJob.id), false);
+  assert.equal(result.state.jobs.some((item) => item.id === secondJob.id), true);
+  assert.equal(
+    result.state.dossiers.some((item) => item.id === second.id),
+    true,
+  );
+  assert.equal(isLegacyStaticDossierEvidence(second), false);
 });
 
 test("payment amount must be deliberately supplied", () => {

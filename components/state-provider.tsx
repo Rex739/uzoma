@@ -10,11 +10,13 @@ import {
 } from "react";
 import { artifactFor, seedState } from "@/lib/mock-data";
 import { demoCasperProof } from "@/lib/casper/proof";
+import { normalizeLegacyStaticDossierEvidence } from "@/lib/casper/live-proof";
 import { applyDossierIntegrity } from "@/lib/dossiers/evidence-integrity";
 import {
   createPlannedJob,
   type PlannedJobInput,
 } from "@/lib/jobs/create-planned-job";
+import { deleteLocalJobFromState } from "@/lib/jobs/delete-local-job";
 import type {
   ActivityEvent,
   AgentId,
@@ -31,6 +33,7 @@ type StateContext = {
   createJob: (input: PlannedJobInput) => string;
   runNextStage: (jobId: string) => void;
   createDossier: (jobId: string) => Promise<string | undefined>;
+  deleteLocalJob: (jobId: string) => boolean;
   updateDossierCasperProof: (
     dossierId: string,
     proof: BrowserCasperAnchorProof,
@@ -58,7 +61,7 @@ function normalizeSpecialistName(name: unknown) {
   return name === "Atlas" ? "Axiom" : name;
 }
 
-function normalizeStoredState(value: AppState): AppState {
+export function normalizeStoredState(value: AppState): AppState {
   return {
     ...value,
     jobs: value.jobs.map((job) => ({
@@ -91,22 +94,24 @@ function normalizeStoredState(value: AppState): AppState {
       ...normalizeSeedAnchorEvent(event),
       agentId: event.agentId ? normalizeAgentId(event.agentId) : undefined,
     })),
-    dossiers: value.dossiers.map((dossier) => ({
-      ...dossier,
-      localWorkflowStatus: dossier.localWorkflowStatus ?? "accepted",
-      casperAnchorStatus:
-        dossier.id === "demo-escrow"
-          ? "confirmed"
-          : (dossier.casperAnchorStatus ?? "not-anchored"),
-      artifacts: dossier.artifacts.map((artifact) => ({
-        ...artifact,
-        agentId: normalizeAgentId(artifact.agentId),
-      })),
-      timeline: dossier.timeline.map((event) => ({
-        ...normalizeSeedAnchorEvent(event),
-        agentId: event.agentId ? normalizeAgentId(event.agentId) : undefined,
-      })),
-    })),
+    dossiers: value.dossiers.map((dossier) =>
+      normalizeLegacyStaticDossierEvidence({
+        ...dossier,
+        localWorkflowStatus: dossier.localWorkflowStatus ?? "accepted",
+        casperAnchorStatus:
+          dossier.id === "demo-escrow"
+            ? "confirmed"
+            : (dossier.casperAnchorStatus ?? "not-anchored"),
+        artifacts: dossier.artifacts.map((artifact) => ({
+          ...artifact,
+          agentId: normalizeAgentId(artifact.agentId),
+        })),
+        timeline: dossier.timeline.map((event) => ({
+          ...normalizeSeedAnchorEvent(event),
+          agentId: event.agentId ? normalizeAgentId(event.agentId) : undefined,
+        })),
+      }),
+    ),
   };
 }
 
@@ -308,6 +313,18 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
     },
     [state.events, state.jobs, updateState],
   );
+  const deleteLocalJob = useCallback(
+    (jobId: string) => {
+      let deleted = false;
+      updateState((s) => {
+        const result = deleteLocalJobFromState(s, jobId);
+        deleted = result.deleted;
+        return result.state;
+      });
+      return deleted;
+    },
+    [updateState],
+  );
   const updateDossierCasperProof = useCallback(
     (dossierId: string, proof: BrowserCasperAnchorProof) => {
       updateState((s) => ({
@@ -365,6 +382,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
       createJob,
       runNextStage,
       createDossier,
+      deleteLocalJob,
       updateDossierCasperProof,
       markDossierCasperUnverified,
     }),
@@ -375,6 +393,7 @@ export function StateProvider({ children }: { children: React.ReactNode }) {
       createJob,
       runNextStage,
       createDossier,
+      deleteLocalJob,
       updateDossierCasperProof,
       markDossierCasperUnverified,
     ],
