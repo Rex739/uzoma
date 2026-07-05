@@ -8,6 +8,7 @@ import {
   isLegacyStaticDossierEvidence,
   isValidMotesPaymentAmount,
 } from "@/lib/casper/live-proof";
+import { getLiveAnchorActionGates } from "@/lib/casper/anchor-action-gates";
 import { normalizeStoredState } from "@/components/state-provider";
 import {
   CasperWalletClientError,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/jobs/delete-local-job";
 import { artifactFor, seedState } from "@/lib/mock-data";
 import type { AppState, BuildDossier, BuildJob } from "@/lib/types";
+import type { CasperWalletConnection } from "@/lib/casper/casper-wallet-client";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -180,6 +182,21 @@ function jobForDossier(dossier: BuildDossier, title = "User local job"): BuildJo
     id: dossier.jobId,
     title,
     dossierId: dossier.id,
+  };
+}
+
+function walletConnection({
+  publicKey = "011111111111111111111111111111111111111111111111111111111111111111",
+  supports = ["sign-transactionv1"],
+}: {
+  publicKey?: string;
+  supports?: string[];
+} = {}): CasperWalletConnection {
+  const { provider } = fakeProvider({ publicKey, supports });
+  return {
+    provider: provider as CasperWalletConnection["provider"],
+    publicKey,
+    supports,
   };
 }
 
@@ -358,6 +375,84 @@ test("payment amount must be deliberately supplied", () => {
   assert.equal(isValidMotesPaymentAmount("1.5"), false);
   assert.equal(isValidMotesPaymentAmount("20_000"), false);
   assert.equal(isValidMotesPaymentAmount("20000000000"), true);
+});
+
+test("live anchor modal gates hide wallet review until payment and wallet are ready", () => {
+  const blankPayment = getLiveAnchorActionGates({
+    paymentIsValid: false,
+    connection: null,
+    eligibilityReady: true,
+    anchorEligible: true,
+    unsignedTransactionReady: false,
+    state: "reviewing",
+  });
+  assert.equal(blankPayment.connectEnabled, false);
+  assert.equal(blankPayment.reviewVisible, false);
+  assert.equal(blankPayment.reviewEnabled, false);
+
+  const validPaymentDisconnected = getLiveAnchorActionGates({
+    paymentIsValid: true,
+    connection: null,
+    eligibilityReady: true,
+    anchorEligible: true,
+    unsignedTransactionReady: false,
+    state: "reviewing",
+  });
+  assert.equal(validPaymentDisconnected.connectEnabled, true);
+  assert.equal(validPaymentDisconnected.reviewVisible, false);
+  assert.equal(validPaymentDisconnected.reviewEnabled, false);
+});
+
+test("live anchor modal keeps review unavailable without TransactionV1 capability", () => {
+  const gates = getLiveAnchorActionGates({
+    paymentIsValid: true,
+    connection: walletConnection({ supports: [] }),
+    eligibilityReady: true,
+    anchorEligible: true,
+    unsignedTransactionReady: true,
+    state: "wallet-connected",
+  });
+  assert.equal(gates.walletConnected, true);
+  assert.equal(gates.transactionV1Supported, false);
+  assert.equal(gates.connectEnabled, false);
+  assert.equal(gates.reviewVisible, true);
+  assert.equal(gates.reviewEnabled, false);
+});
+
+test("live anchor modal enables review only when all signing prerequisites are met", () => {
+  const gates = getLiveAnchorActionGates({
+    paymentIsValid: true,
+    connection: walletConnection(),
+    eligibilityReady: true,
+    anchorEligible: true,
+    unsignedTransactionReady: true,
+    state: "wallet-connected",
+  });
+  assert.equal(gates.connectEnabled, false);
+  assert.equal(gates.reviewVisible, true);
+  assert.equal(gates.reviewEnabled, true);
+});
+
+test("live anchor modal busy or signed states block wallet review and submission triggers", () => {
+  for (const state of [
+    "awaiting-wallet-approval",
+    "submitting",
+    "submitted",
+    "verifying",
+    "confirmed",
+    "signed",
+  ] as const) {
+    const gates = getLiveAnchorActionGates({
+      paymentIsValid: true,
+      connection: walletConnection(),
+      eligibilityReady: true,
+      anchorEligible: true,
+      unsignedTransactionReady: true,
+      state,
+    });
+    assert.equal(gates.connectEnabled, false);
+    assert.equal(gates.reviewEnabled, false);
+  }
 });
 
 test("native Casper Wallet detection is SSR-safe and does not connect", async () => {

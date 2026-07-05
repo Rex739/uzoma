@@ -10,6 +10,7 @@ import {
   signWithNativeCasperWallet,
   type CasperWalletConnection,
 } from "@/lib/casper/casper-wallet-client";
+import { getLiveAnchorActionGates } from "@/lib/casper/anchor-action-gates";
 import {
   abbreviatePublicKey,
   getCsprLiveDeployUrl,
@@ -130,6 +131,14 @@ export function DossierAnchorAction({ dossier, job }: Props) {
   const paymentIsValid = isValidMotesPaymentAmount(paymentAmount);
   const rpcUrl =
     process.env.NEXT_PUBLIC_CASPER_TESTNET_RPC?.trim() || DEFAULT_TESTNET_RPC;
+  const gates = getLiveAnchorActionGates({
+    paymentIsValid,
+    connection,
+    eligibilityReady: Boolean(eligibility),
+    anchorEligible: Boolean(eligibility?.eligible),
+    unsignedTransactionReady: Boolean(unsignedTransaction),
+    state,
+  });
 
   useEffect(() => {
     let active = true;
@@ -191,7 +200,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
   }
 
   async function connectWallet() {
-    if (!paymentIsValid) {
+    if (!gates.connectEnabled) {
       setMessage("Enter a deliberate positive payment amount in motes first.");
       return;
     }
@@ -216,7 +225,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
   }
 
   async function reviewInWallet() {
-    if (!connection || !unsignedTransaction) {
+    if (!gates.reviewEnabled || !connection || !unsignedTransaction) {
       setMessage("Connect Casper Wallet before wallet review.");
       return;
     }
@@ -394,6 +403,21 @@ export function DossierAnchorAction({ dossier, job }: Props) {
                     : "Not connected"
                 }
               />
+              {connection?.publicKey && (
+                <ProofField
+                  label="TransactionV1"
+                  value={
+                    gates.transactionV1Supported
+                      ? "sign-transactionv1 supported"
+                      : "Unsupported"
+                  }
+                  display={
+                    gates.transactionV1Supported
+                      ? "sign-transactionv1 supported"
+                      : "Unsupported"
+                  }
+                />
+              )}
             </div>
             <label className="mt-5 block text-xs font-semibold text-slate-300">
               Required payment amount, in motes
@@ -443,29 +467,20 @@ export function DossierAnchorAction({ dossier, job }: Props) {
               <Button
                 variant="secondary"
                 onClick={connectWallet}
-                disabled={
-                  !paymentIsValid ||
-                  state === "connecting-wallet" ||
-                  state === "awaiting-wallet-approval" ||
-                  state === "submitting" ||
-                  state === "verifying"
-                }
+                disabled={!gates.connectEnabled}
               >
                 <Wallet className="size-4" />
                 Connect Casper Wallet
               </Button>
-              <Button
-                variant="gold"
-                onClick={reviewInWallet}
-                disabled={
-                  !connection ||
-                  state === "awaiting-wallet-approval" ||
-                  state === "submitting" ||
-                  state === "verifying"
-                }
-              >
-                Review in wallet
-              </Button>
+              {gates.reviewVisible && (
+                <Button
+                  variant={gates.reviewEnabled ? "gold" : "secondary"}
+                  onClick={reviewInWallet}
+                  disabled={!gates.reviewEnabled}
+                >
+                  Review in wallet
+                </Button>
+              )}
               {state === "signed" && (
                 <Button variant="gold" onClick={submitSignedTransaction}>
                   Submit to Casper Testnet
