@@ -1,4 +1,4 @@
-import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-transaction";
+import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-anchor-config";
 import {
   getCsprLiveDeployUrl,
   type AnchorVerificationInput,

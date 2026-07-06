@@ -14,7 +14,7 @@ const BLOCKED_ACTION_STATES = new Set<LiveProofAnchorState>([
 ]);
 
 export type LiveAnchorActionGateInput = {
-  paymentIsValid: boolean;
+  paymentPolicyValid: boolean;
   connection: CasperWalletConnection | null;
   eligibilityReady: boolean;
   anchorEligible: boolean;
@@ -32,14 +32,17 @@ export function getLiveAnchorActionGates(input: LiveAnchorActionGateInput) {
     input.anchorEligible &&
     input.unsignedTransactionReady;
   const connectEnabled =
-    input.paymentIsValid && !walletConnected && !busy && input.state !== "signed";
+    input.paymentPolicyValid &&
+    !walletConnected &&
+    !busy &&
+    input.state !== "signed";
   const reviewVisible =
     walletConnected ||
     input.state === "awaiting-wallet-approval" ||
     input.state === "signing-cancelled" ||
     input.state === "signed";
   const reviewEnabled =
-    input.paymentIsValid &&
+    input.paymentPolicyValid &&
     walletConnected &&
     transactionV1Supported &&
     evidenceReady &&

@@ -1,25 +1,19 @@
 import type * as CasperSdkTypes from "casper-js-sdk";
 import * as casperSdkModule from "casper-js-sdk";
+export { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-anchor-config";
+import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-anchor-config";
+import { normalizeWalletSignature } from "@/lib/casper/casper-wallet-client";
+import type { CasperWalletSignatureResponse } from "@/lib/casper/casper-wallet-client";
+import {
+  getSignedTransactionApprovalRecords,
+  getSignedTransactionBoundaryDiagnostic,
+} from "@/lib/casper/signed-transaction-diagnostics";
 
 const CasperSdk = (
   "default" in casperSdkModule
     ? casperSdkModule.default
     : casperSdkModule
 ) as unknown as typeof CasperSdkTypes;
-
-export const LIVE_PROOF_ANCHOR_CONFIG = {
-  packageHash:
-    "hash-c1e00c7784953c4a944f76adf4cd3ef87745c97e60ebcd5667737af425574f80",
-  packageHashBytes:
-    "c1e00c7784953c4a944f76adf4cd3ef87745c97e60ebcd5667737af425574f80",
-  chainName: "casper-test",
-  entryPoint: "anchor_dossier",
-  runtime: "VmCasperV1",
-  pricingMode: "PaymentLimited",
-  gasPriceTolerance: 1,
-  standardPayment: true,
-  target: "Stored/ByPackageHash",
-} as const;
 
 export type AnchorDossierTransactionInput = {
   signerPublicKey: string;
@@ -61,6 +55,12 @@ export type AnchorDossierTransactionResult = {
   payloadPreview: AnchorDossierPayloadPreview;
   transactionHash: string;
   unsigned: true;
+};
+
+export type SignedAnchorApprovalSummary = {
+  approvalCount: number;
+  signerMatches: boolean;
+  signaturePresent: boolean;
 };
 
 function requireNonEmpty(value: string, label: string) {
@@ -199,6 +199,58 @@ function numberAt(value: unknown, path: string[]) {
   return typeof current === "number" ? current : undefined;
 }
 
+function approvalSummaryFromJson(
+  walletJson: unknown,
+  expectedSignerPublicKey: string,
+): SignedAnchorApprovalSummary {
+  const diagnostic = getSignedTransactionBoundaryDiagnostic(walletJson);
+  const matchingApproval = getSignedTransactionApprovalRecords(walletJson).find(
+    (approval) =>
+      typeof approval.signer === "string" &&
+      approval.signer.toLowerCase() === expectedSignerPublicKey.toLowerCase(),
+  );
+  const signature = matchingApproval?.signature;
+  return {
+    approvalCount: diagnostic.approvalCount,
+    signerMatches: Boolean(matchingApproval),
+    signaturePresent: typeof signature === "string" && signature.length > 0,
+  };
+}
+
+export function getSignedAnchorApprovalSummary({
+  transactionJson,
+  expectedSignerPublicKey,
+}: {
+  transactionJson: unknown;
+  expectedSignerPublicKey: string;
+}) {
+  return approvalSummaryFromJson(transactionJson, expectedSignerPublicKey);
+}
+
+export function getSignedAnchorTransactionRelayJson({
+  transaction,
+  expectedSignerPublicKey,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  expectedSignerPublicKey: string;
+}) {
+  const transactionJson = transaction.toJSON();
+  const summary = getSignedAnchorApprovalSummary({
+    transactionJson,
+    expectedSignerPublicKey,
+  });
+  if (
+    summary.approvalCount < 1 ||
+    !summary.signerMatches ||
+    !summary.signaturePresent
+  ) {
+    throw new Error(
+      "Wallet approval could not be attached to the transaction. No transaction was submitted.",
+    );
+  }
+  return transactionJson;
+}
+
 function bytesArg(args: Map<string, unknown>, name: string) {
   const bytes = asRecord(args.get(name))?.bytes;
   return typeof bytes === "string" ? bytes : undefined;
@@ -299,66 +351,41 @@ export function assertAnchorTransactionIntegrity({
 
 export function applyWalletSignatureToAnchorTransaction({
   transaction,
-  signature,
+  signatureResponse,
   signingPublicKeyHex,
   expected,
 }: {
   transaction: CasperSdkTypes.Transaction;
-  signature: Uint8Array;
+  signatureResponse: CasperWalletSignatureResponse;
   signingPublicKeyHex: string;
   expected: AnchorDossierPayloadPreview;
 }) {
   if (signingPublicKeyHex.toLowerCase() !== expected.signerPublicKey.toLowerCase()) {
     throw new Error("Connected public key does not match transaction initiator.");
   }
-  transaction.setSignature(signature, CasperSdk.PublicKey.fromHex(signingPublicKeyHex));
+  const signature = normalizeWalletSignature(signatureResponse);
+  const publicKey = CasperSdk.PublicKey.fromHex(signingPublicKeyHex);
+  const transactionV1 = transaction.getTransactionV1();
+  if (!transactionV1) {
+    throw new Error(
+      "Wallet approval could not be attached to the transaction. No transaction was submitted.",
+    );
+  }
+  const signedTransactionV1 = CasperSdk.TransactionV1.setSignature(
+    transactionV1,
+    signature,
+    publicKey,
+  );
+  const signedTransaction =
+    CasperSdk.Transaction.fromTransactionV1(signedTransactionV1);
   assertAnchorTransactionIntegrity({
-    transaction,
+    transaction: signedTransaction,
     expected,
     requireSignature: true,
   });
-  return transaction;
-}
-
-export async function checkCasperTestnetRpcBrowserReadiness(rpcUrl: string) {
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method: "info_get_status",
-      params: {},
-    }),
+  getSignedAnchorTransactionRelayJson({
+    transaction: signedTransaction,
+    expectedSignerPublicKey: signingPublicKeyHex,
   });
-  if (!response.ok) {
-    throw new Error(`Casper Testnet RPC readiness failed: HTTP ${response.status}`);
-  }
-  const json = (await response.json()) as {
-    result?: { chainspec_name?: string };
-    error?: { message?: string };
-  };
-  if (json.error) {
-    throw new Error(json.error.message || "Casper Testnet RPC readiness failed.");
-  }
-  if (json.result?.chainspec_name !== LIVE_PROOF_ANCHOR_CONFIG.chainName) {
-    throw new Error("Casper Testnet RPC returned an unexpected chain name.");
-  }
-  return {
-    chainName: json.result.chainspec_name,
-    corsReady: true,
-  };
-}
-
-export async function submitSignedAnchorTransaction({
-  transaction,
-  rpcUrl,
-}: {
-  transaction: CasperSdkTypes.Transaction;
-  rpcUrl: string;
-}) {
-  const handler = new CasperSdk.HttpHandler(rpcUrl, "fetch");
-  const rpcClient = new CasperSdk.RpcClient(handler);
-  const result = await rpcClient.putTransaction(transaction);
-  return result.transactionHash.toHex();
+  return signedTransaction;
 }

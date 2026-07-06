@@ -10,8 +10,8 @@ export type CasperWalletSignatureResponse =
     }
   | {
       cancelled: false;
-      signatureHex?: string;
-      signature?: Uint8Array | number[] | string;
+      signatureHex: string;
+      signature: Uint8Array | number[] | string;
     };
 
 export type NativeCasperWalletProvider = {
@@ -212,36 +212,56 @@ export async function connectNativeCasperWallet(): Promise<CasperWalletConnectio
   }
 }
 
-export function normalizeWalletSignature(
-  response: CasperWalletSignatureResponse,
-) {
-  if (response.cancelled) {
-    throw new CasperWalletClientError(
-      "CASPER_WALLET_SIGNING_CANCELLED",
-      response.message || "Wallet signing cancelled.",
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function signatureCandidateToBytes(value: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(
+      value.buffer as ArrayBuffer,
+      value.byteOffset,
+      value.byteLength,
     );
   }
-  if (response.signature instanceof Uint8Array) return response.signature;
-  if (Array.isArray(response.signature)) return Uint8Array.from(response.signature);
-  const hex =
-    typeof response.signatureHex === "string"
-      ? response.signatureHex
-      : typeof response.signature === "string"
-        ? response.signature
-        : "";
-  const normalized = hex.replace(/^0x/, "");
+  if (Array.isArray(value) && value.every((item) => Number.isInteger(item))) {
+    return Uint8Array.from(value);
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.replace(/^0x/, "");
   if (!/^[0-9a-f]+$/i.test(normalized) || normalized.length % 2 !== 0) {
-    throw new CasperWalletClientError(
-      "CASPER_WALLET_SIGNING_ERROR",
-      "Casper Wallet returned a malformed signature.",
-    );
+    return undefined;
   }
   return Uint8Array.from(
     normalized.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [],
   );
 }
 
-export async function signWithNativeCasperWallet({
+export function normalizeWalletSignature(response: unknown) {
+  const record = asRecord(response);
+  if (record?.cancelled === true) {
+    throw new CasperWalletClientError(
+      "CASPER_WALLET_SIGNING_CANCELLED",
+      typeof record.message === "string"
+        ? record.message
+        : "Wallet signing cancelled.",
+    );
+  }
+
+  const signature = signatureCandidateToBytes(record?.signature);
+
+  if (!signature || (signature.length !== 64 && signature.length !== 65)) {
+    throw new CasperWalletClientError(
+      "CASPER_WALLET_SIGNING_ERROR",
+      "Casper Wallet returned a malformed signature.",
+    );
+  }
+  return signature;
+}
+
+export async function requestNativeCasperWalletSignature({
   provider,
   transactionJson,
   signingPublicKeyHex,
@@ -252,7 +272,8 @@ export async function signWithNativeCasperWallet({
 }) {
   try {
     const response = await provider.sign(transactionJson, signingPublicKeyHex);
-    return normalizeWalletSignature(response);
+    normalizeWalletSignature(response);
+    return response;
   } catch (error) {
     if (
       error instanceof CasperWalletClientError &&
@@ -272,4 +293,22 @@ export async function signWithNativeCasperWallet({
       "Casper Wallet signing failed.",
     );
   }
+}
+
+export async function signWithNativeCasperWallet({
+  provider,
+  transactionJson,
+  signingPublicKeyHex,
+}: {
+  provider: NativeCasperWalletProvider;
+  transactionJson: string;
+  signingPublicKeyHex: string;
+}) {
+  return normalizeWalletSignature(
+    await requestNativeCasperWalletSignature({
+      provider,
+      transactionJson,
+      signingPublicKeyHex,
+    }),
+  );
 }
