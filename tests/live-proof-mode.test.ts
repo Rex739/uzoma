@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { afterEach, test } from "node:test";
-import * as casperSdkModule from "casper-js-sdk";
+import {
+  getAnchorFeePolicyDetails,
+  isValidAnchorFeePolicy,
+  REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+} from "@/lib/casper/anchor-fee-policy";
 import {
   getDossierReferenceCopy,
   getCsprLiveDeployUrl,
@@ -22,7 +26,8 @@ import {
   applyWalletSignatureToAnchorTransaction,
   assertAnchorTransactionIntegrity,
   buildAnchorDossierUnsignedTransaction,
-  checkCasperTestnetRpcBrowserReadiness,
+  getSignedAnchorApprovalSummary,
+  getSignedAnchorTransactionRelayJson,
   LIVE_PROOF_ANCHOR_CONFIG,
 } from "@/lib/casper/live-proof-transaction";
 import { verifyAnchorReadOnly } from "@/lib/casper/verify-anchor";
@@ -37,11 +42,9 @@ import type { CasperWalletConnection } from "@/lib/casper/casper-wallet-client";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-const CasperSdk = (
-  "default" in casperSdkModule
-    ? casperSdkModule.default
-    : casperSdkModule
-) as typeof casperSdkModule;
+const testPublicKey =
+  "011111111111111111111111111111111111111111111111111111111111111111";
+const testSignature = Uint8Array.from({ length: 64 }, (_, index) => index);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -377,35 +380,35 @@ test("payment amount must be deliberately supplied", () => {
   assert.equal(isValidMotesPaymentAmount("20000000000"), true);
 });
 
-test("live anchor modal gates hide wallet review until payment and wallet are ready", () => {
-  const blankPayment = getLiveAnchorActionGates({
-    paymentIsValid: false,
+test("live anchor modal gates hide wallet review until policy and wallet are ready", () => {
+  const missingPolicy = getLiveAnchorActionGates({
+    paymentPolicyValid: false,
     connection: null,
     eligibilityReady: true,
     anchorEligible: true,
     unsignedTransactionReady: false,
     state: "reviewing",
   });
-  assert.equal(blankPayment.connectEnabled, false);
-  assert.equal(blankPayment.reviewVisible, false);
-  assert.equal(blankPayment.reviewEnabled, false);
+  assert.equal(missingPolicy.connectEnabled, false);
+  assert.equal(missingPolicy.reviewVisible, false);
+  assert.equal(missingPolicy.reviewEnabled, false);
 
-  const validPaymentDisconnected = getLiveAnchorActionGates({
-    paymentIsValid: true,
+  const validPolicyDisconnected = getLiveAnchorActionGates({
+    paymentPolicyValid: true,
     connection: null,
     eligibilityReady: true,
     anchorEligible: true,
     unsignedTransactionReady: false,
     state: "reviewing",
   });
-  assert.equal(validPaymentDisconnected.connectEnabled, true);
-  assert.equal(validPaymentDisconnected.reviewVisible, false);
-  assert.equal(validPaymentDisconnected.reviewEnabled, false);
+  assert.equal(validPolicyDisconnected.connectEnabled, true);
+  assert.equal(validPolicyDisconnected.reviewVisible, false);
+  assert.equal(validPolicyDisconnected.reviewEnabled, false);
 });
 
 test("live anchor modal keeps review unavailable without TransactionV1 capability", () => {
   const gates = getLiveAnchorActionGates({
-    paymentIsValid: true,
+    paymentPolicyValid: true,
     connection: walletConnection({ supports: [] }),
     eligibilityReady: true,
     anchorEligible: true,
@@ -421,7 +424,7 @@ test("live anchor modal keeps review unavailable without TransactionV1 capabilit
 
 test("live anchor modal enables review only when all signing prerequisites are met", () => {
   const gates = getLiveAnchorActionGates({
-    paymentIsValid: true,
+    paymentPolicyValid: true,
     connection: walletConnection(),
     eligibilityReady: true,
     anchorEligible: true,
@@ -443,7 +446,7 @@ test("live anchor modal busy or signed states block wallet review and submission
     "signed",
   ] as const) {
     const gates = getLiveAnchorActionGates({
-      paymentIsValid: true,
+      paymentPolicyValid: true,
       connection: walletConnection(),
       eligibilityReady: true,
       anchorEligible: true,
@@ -453,6 +456,65 @@ test("live anchor modal busy or signed states block wallet review and submission
     assert.equal(gates.connectEnabled, false);
     assert.equal(gates.reviewEnabled, false);
   }
+});
+
+test("live anchor modal uses a reviewed payment policy instead of an editable mote input", () => {
+  const source = fs.readFileSync("components/dossier-anchor-action.tsx", "utf8");
+  assert.equal(source.includes("Enter deliberate Testnet payment amount"), false);
+  assert.equal(source.includes("Required payment amount, in motes"), false);
+  assert.equal(source.includes("inputMode=\"numeric\""), false);
+  assert.equal(source.includes("Payment source"), false);
+  assert.equal(source.includes("PAYMENT SOURCE"), false);
+  assert.equal(source.includes("previous dossier"), false);
+  assert.equal(source.includes("old demo"), false);
+  assert.equal(source.includes("prior successful anchor transaction"), false);
+  assert.equal(source.includes("Casper Testnet execution budget"), true);
+  assert.equal(source.includes("View technical policy details"), true);
+  assert.equal(
+    source.includes(REVIEWED_TESTNET_ANCHOR_FEE_POLICY.sourceTransactionHash),
+    false,
+  );
+  assert.equal(
+    source.includes("REVIEWED_TESTNET_ANCHOR_FEE_POLICY.sourceTransactionHash"),
+    true,
+  );
+  assert.equal(isValidAnchorFeePolicy(REVIEWED_TESTNET_ANCHOR_FEE_POLICY), true);
+  assert.deepEqual(
+    getAnchorFeePolicyDetails({
+      expanded: false,
+      policy: REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+    }),
+    [],
+  );
+  assert.equal(
+    getAnchorFeePolicyDetails({
+      expanded: true,
+      policy: REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+    }).some(
+      (detail) =>
+        detail.label === "Reference transaction" &&
+        detail.value === REVIEWED_TESTNET_ANCHOR_FEE_POLICY.sourceTransactionHash,
+    ),
+    true,
+  );
+  assert.equal(
+    isValidAnchorFeePolicy({
+      ...REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+      paymentAmountMotes: "0",
+    }),
+    false,
+  );
+  assert.equal(
+    isValidAnchorFeePolicy({
+      ...REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+      network: "casper-mainnet",
+    }),
+    false,
+  );
+  assert.equal(
+    REVIEWED_TESTNET_ANCHOR_FEE_POLICY.sourceTransactionHash,
+    "770848c2ac6d2ef68133e03b7e567f2dec4bb255f34b9c79128174e5e2527658",
+  );
 });
 
 test("native Casper Wallet detection is SSR-safe and does not connect", async () => {
@@ -574,60 +636,148 @@ test("signing cancellation does not become failure", async () => {
 
 test("malformed signature blocks submission", () => {
   assert.throws(
-    () => normalizeWalletSignature({ cancelled: false, signatureHex: "not-hex" }),
+    () =>
+      normalizeWalletSignature({
+        cancelled: false,
+        signatureHex: "a".repeat(128),
+        signature: [],
+      }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_SIGNING_ERROR",
+  );
+  assert.throws(
+    () =>
+      normalizeWalletSignature({
+        cancelled: false,
+        signatureHex: "a".repeat(128),
+      }),
     (error) =>
       error instanceof CasperWalletClientError &&
       error.code === "CASPER_WALLET_SIGNING_ERROR",
   );
 });
 
-test("signed transaction preserves package-call fields and signer", async () => {
-  const key = CasperSdk.PrivateKey.generate(CasperSdk.KeyAlgorithm.ED25519);
+test("wallet response normalization uses official Casper Wallet signature bytes", () => {
+  const signature = Uint8Array.from({ length: 64 }, (_, index) => index);
+  const normalized = normalizeWalletSignature({
+    cancelled: false,
+    signatureHex: "f".repeat(128),
+    signature,
+  });
+
+  assert.deepEqual([...normalized], [...signature]);
+});
+
+test("signed transaction preserves package-call fields and signer", () => {
   const unsigned = buildAnchorDossierUnsignedTransaction({
-    signerPublicKey: key.publicKey.toHex(),
+    signerPublicKey: testPublicKey,
     jobId: "demo-escrow",
     dossierHash:
       "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
     artifactRootHash:
       "sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4",
     artifactCount: 4,
-    paymentAmount: "20000000000",
+    paymentAmount: REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes,
   });
   assertAnchorTransactionIntegrity({
     transaction: unsigned.transaction,
     expected: unsigned.payloadPreview,
   });
-  const signature = await key.rawSign(unsigned.transaction.hash.toBytes());
   const signed = applyWalletSignatureToAnchorTransaction({
     transaction: unsigned.transaction,
-    signature,
-    signingPublicKeyHex: key.publicKey.toHex(),
+    signatureResponse: {
+      cancelled: false,
+      signatureHex: "0".repeat(128),
+      signature: testSignature,
+    },
+    signingPublicKeyHex: testPublicKey,
     expected: unsigned.payloadPreview,
   });
   const json = signed.toJSON() as { approvals?: unknown[] };
   assert.equal(json.approvals?.length, 1);
-});
-
-test("direct browser RPC readiness distinguishes CORS/RPC blockers", async () => {
-  globalThis.fetch = (async () =>
-    Response.json({
-      jsonrpc: "2.0",
-      result: { chainspec_name: "casper-test" },
-    })) as typeof fetch;
   assert.deepEqual(
-    await checkCasperTestnetRpcBrowserReadiness("https://example.test/rpc"),
+    getSignedAnchorApprovalSummary({
+      transactionJson: json,
+      expectedSignerPublicKey: testPublicKey,
+    }),
     {
-      chainName: "casper-test",
-      corsReady: true,
+      approvalCount: 1,
+      signerMatches: true,
+      signaturePresent: true,
     },
   );
+  assert.deepEqual(
+    getSignedAnchorTransactionRelayJson({
+      transaction: signed,
+      expectedSignerPublicKey: testPublicKey,
+    }),
+    json,
+  );
+});
 
-  globalThis.fetch = (async () => {
-    throw new TypeError("Failed to fetch");
-  }) as typeof fetch;
-  await assert.rejects(
-    checkCasperTestnetRpcBrowserReadiness("https://example.test/rpc"),
-    /Failed to fetch/,
+test("client blocks relay serialization when approval count is zero", () => {
+  const unsigned = buildAnchorDossierUnsignedTransaction({
+    signerPublicKey:
+      "011111111111111111111111111111111111111111111111111111111111111111",
+    jobId: "demo-escrow",
+    dossierHash:
+      "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+    artifactRootHash:
+      "sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4",
+    artifactCount: 4,
+    paymentAmount: REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes,
+  });
+
+  assert.throws(
+    () =>
+      getSignedAnchorTransactionRelayJson({
+        transaction: unsigned.transaction,
+        expectedSignerPublicKey: unsigned.payloadPreview.signerPublicKey,
+      }),
+    /Wallet approval could not be attached/,
+  );
+});
+
+test("official signature application returns the signed transaction used for relay", () => {
+  const unsigned = buildAnchorDossierUnsignedTransaction({
+    signerPublicKey: testPublicKey,
+    jobId: "demo-escrow",
+    dossierHash:
+      "sha256:uzoma-dossier-demo-escrow4fd18b4fd18b4fd18b4fd18b4fd18b4fd18b4fd",
+    artifactRootHash:
+      "sha256:43b5d9face5f64d5009b8e3b02aff9ec8d7185c76ed0db58940a802d8ad108d4",
+    artifactCount: 4,
+    paymentAmount: REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes,
+  });
+  const unsignedJsonBeforeSigning = unsigned.transaction.toJSON() as {
+    approvals?: unknown[];
+  };
+
+  const signed = applyWalletSignatureToAnchorTransaction({
+    transaction: unsigned.transaction,
+    signatureResponse: {
+      cancelled: false,
+      signatureHex: "0".repeat(128),
+      signature: testSignature,
+    },
+    signingPublicKeyHex: testPublicKey,
+    expected: unsigned.payloadPreview,
+  });
+  const json = signed.toJSON() as { approvals?: unknown[] };
+
+  assert.equal(unsignedJsonBeforeSigning.approvals?.length, 0);
+  assert.equal(json.approvals?.length, 1);
+  assert.deepEqual(
+    getSignedAnchorApprovalSummary({
+      transactionJson: json,
+      expectedSignerPublicKey: testPublicKey,
+    }),
+    {
+      approvalCount: 1,
+      signerMatches: true,
+      signaturePresent: true,
+    },
   );
 });
 

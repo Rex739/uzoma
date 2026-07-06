@@ -3,11 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck, Wallet } from "lucide-react";
 import { useAppState } from "@/components/state-provider";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, CopyButton } from "@/components/ui";
+import {
+  getAnchorFeePolicyDetails,
+  isValidAnchorFeePolicy,
+  REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+} from "@/lib/casper/anchor-fee-policy";
 import {
   CasperWalletClientError,
   connectNativeCasperWallet,
-  signWithNativeCasperWallet,
+  requestNativeCasperWalletSignature,
   type CasperWalletConnection,
 } from "@/lib/casper/casper-wallet-client";
 import { getLiveAnchorActionGates } from "@/lib/casper/anchor-action-gates";
@@ -15,18 +20,17 @@ import {
   abbreviatePublicKey,
   getCsprLiveDeployUrl,
   isLegacyDossier,
-  isValidMotesPaymentAmount,
   type AnchorVerificationResponse,
   type LiveProofAnchorState,
 } from "@/lib/casper/live-proof";
 import {
   applyWalletSignatureToAnchorTransaction,
   buildAnchorDossierUnsignedTransaction,
-  checkCasperTestnetRpcBrowserReadiness,
+  getSignedAnchorTransactionRelayJson,
   LIVE_PROOF_ANCHOR_CONFIG,
-  submitSignedAnchorTransaction,
   type AnchorDossierUnsignedTransaction,
 } from "@/lib/casper/live-proof-transaction";
+import { getSignedTransactionBoundaryDiagnostic } from "@/lib/casper/signed-transaction-diagnostics";
 import {
   computeDossierIntegrity,
   getDossierAnchorEligibility,
@@ -35,7 +39,6 @@ import {
 import type { BuildDossier, BuildJob } from "@/lib/types";
 import { shortHash } from "@/lib/utils";
 
-const DEFAULT_TESTNET_RPC = "https://node.testnet.casper.network/rpc";
 const VERIFY_ATTEMPTS = 6;
 const VERIFY_INTERVAL_MS = 8_000;
 
@@ -110,6 +113,42 @@ async function verifyAnchor(input: {
   return (await response.json()) as AnchorVerificationResponse;
 }
 
+async function submitAnchorThroughRelay(input: {
+  signedTransaction: unknown;
+  dossier: BuildDossier;
+}) {
+  const clientDiagnostic = getSignedTransactionBoundaryDiagnostic(
+    input.signedTransaction,
+  );
+  const response = await fetch("/api/casper/submit-anchor", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      signedTransaction: input.signedTransaction,
+      expected: {
+        jobId: input.dossier.jobId,
+        dossierHash: input.dossier.dossierHash,
+        artifactRootHash: input.dossier.artifactRootHash,
+        artifactCount: input.dossier.artifacts.length,
+        expectedPackageHash: LIVE_PROOF_ANCHOR_CONFIG.packageHash,
+        expectedNetwork: LIVE_PROOF_ANCHOR_CONFIG.chainName,
+      },
+      clientDiagnostic,
+    }),
+  });
+  const result = (await response.json()) as
+    | { status: "submitted"; transactionHash: string }
+    | { status: "failed"; code: string; message: string };
+  if (!response.ok || result.status !== "submitted") {
+    throw new Error(
+      result.status === "failed"
+        ? result.message
+        : "Signed transaction could not be relayed.",
+    );
+  }
+  return result.transactionHash;
+}
+
 export function DossierAnchorAction({ dossier, job }: Props) {
   const { updateDossierCasperProof, markDossierCasperUnverified } =
     useAppState();
@@ -117,7 +156,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
     useState<DossierAnchorEligibility | null>(null);
   const [state, setState] = useState<LiveProofAnchorState>("not-anchored");
   const [modalOpen, setModalOpen] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
+  const [policyDetailsOpen, setPolicyDetailsOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [connection, setConnection] = useState<CasperWalletConnection | null>(
     null,
@@ -128,16 +167,19 @@ export function DossierAnchorAction({ dossier, job }: Props) {
 
   const artifactRootHash = dossier.artifactRootHash ?? "";
   const isLegacy = isLegacyDossier(dossier);
-  const paymentIsValid = isValidMotesPaymentAmount(paymentAmount);
-  const rpcUrl =
-    process.env.NEXT_PUBLIC_CASPER_TESTNET_RPC?.trim() || DEFAULT_TESTNET_RPC;
+  const paymentPolicyValid = isValidAnchorFeePolicy(
+    REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
+  );
   const gates = getLiveAnchorActionGates({
-    paymentIsValid,
+    paymentPolicyValid,
     connection,
     eligibilityReady: Boolean(eligibility),
     anchorEligible: Boolean(eligibility?.eligible),
     unsignedTransactionReady: Boolean(unsignedTransaction),
     state,
+  });
+  const policyDetails = getAnchorFeePolicyDetails({
+    expanded: policyDetailsOpen,
   });
 
   useEffect(() => {
@@ -180,6 +222,9 @@ export function DossierAnchorAction({ dossier, job }: Props) {
   }
 
   async function buildFreshTransaction(publicKey: string) {
+    if (!paymentPolicyValid) {
+      throw new Error("Reviewed Testnet payment policy is unavailable.");
+    }
     const integrity = await computeDossierIntegrity(dossier);
     if (
       integrity.dossierHash !== dossier.dossierHash ||
@@ -195,13 +240,13 @@ export function DossierAnchorAction({ dossier, job }: Props) {
       dossierHash: dossier.dossierHash,
       artifactRootHash,
       artifactCount: dossier.artifacts.length,
-      paymentAmount,
+      paymentAmount: REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes,
     });
   }
 
   async function connectWallet() {
     if (!gates.connectEnabled) {
-      setMessage("Enter a deliberate positive payment amount in motes first.");
+      setMessage("Reviewed Testnet payment policy is unavailable.");
       return;
     }
     setState("connecting-wallet");
@@ -233,16 +278,20 @@ export function DossierAnchorAction({ dossier, job }: Props) {
     setMessage("Awaiting Casper Wallet approval…");
     try {
       const fresh = await buildFreshTransaction(connection.publicKey);
-      const signature = await signWithNativeCasperWallet({
+      const signatureResponse = await requestNativeCasperWalletSignature({
         provider: connection.provider,
         transactionJson: fresh.walletTransactionJsonString,
         signingPublicKeyHex: connection.publicKey,
       });
       const signed = applyWalletSignatureToAnchorTransaction({
         transaction: fresh.transaction,
-        signature,
+        signatureResponse,
         signingPublicKeyHex: connection.publicKey,
         expected: fresh.payloadPreview,
+      });
+      getSignedAnchorTransactionRelayJson({
+        transaction: signed,
+        expectedSignerPublicKey: connection.publicKey,
       });
       setUnsignedTransaction({ ...fresh, transaction: signed });
       setState("signed");
@@ -257,15 +306,17 @@ export function DossierAnchorAction({ dossier, job }: Props) {
   }
 
   async function submitSignedTransaction() {
-    if (!unsignedTransaction || state !== "signed") return;
+    if (!unsignedTransaction || state !== "signed" || !connection) return;
     setState("submitting");
-    setMessage("Checking public Casper Testnet RPC availability…");
+    setMessage("Relaying wallet-approved transaction to Casper Testnet…");
     try {
-      await checkCasperTestnetRpcBrowserReadiness(rpcUrl);
-      setMessage("Submitting signed transaction to Casper Testnet…");
-      const submittedHash = await submitSignedAnchorTransaction({
+      const signedTransaction = getSignedAnchorTransactionRelayJson({
         transaction: unsignedTransaction.transaction,
-        rpcUrl,
+        expectedSignerPublicKey: connection.publicKey,
+      });
+      const submittedHash = await submitAnchorThroughRelay({
+        signedTransaction,
+        dossier,
       });
       setTransactionHash(submittedHash);
       setState("submitted");
@@ -276,7 +327,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
       setMessage(
         error instanceof Error
           ? error.message
-          : "Signed transaction could not be submitted from this browser.",
+          : "Wallet approval could not be attached to the transaction. No transaction was submitted.",
       );
     }
   }
@@ -390,10 +441,67 @@ export function DossierAnchorAction({ dossier, job }: Props) {
                 value={LIVE_PROOF_ANCHOR_CONFIG.entryPoint}
               />
               <ProofField
-                label="Payment"
-                value={paymentAmount || "Not set"}
-                display={paymentAmount || "Not set"}
+                label="Execution budget"
+                value={REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes}
+                display={`${REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes} motes`}
               />
+            </div>
+            <section className="mt-5 rounded-xl border border-gold/20 bg-gold/[.035] p-4">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                <div>
+                  <p className="eyebrow text-gold">
+                    Casper Testnet execution budget
+                  </p>
+                  <p className="mt-2 font-mono text-sm font-semibold text-white">
+                    {REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes} motes
+                  </p>
+                  <p className="mt-2 max-w-xl text-xs leading-5 text-slate-500">
+                    This configured transaction budget applies to the Build
+                    Dossier Registry anchor. Casper Wallet will show the exact
+                    transaction before you approve it.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                  <CopyButton
+                    value={REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes}
+                    label="Copy motes"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500 transition hover:text-cyan"
+                onClick={() => setPolicyDetailsOpen((open) => !open)}
+              >
+                View technical policy details
+              </button>
+              {policyDetails.length > 0 && (
+                <div className="mt-3 rounded-lg border border-line bg-black/10 p-3">
+                  {policyDetails.map((detail) => (
+                    <ProofField
+                      key={detail.label}
+                      label={detail.label}
+                      value={detail.value}
+                      display={
+                        detail.label === "Reference transaction"
+                          ? shortHash(detail.value)
+                          : detail.value
+                      }
+                    />
+                  ))}
+                  <div className="mt-2 flex justify-end">
+                    <CopyButton
+                      value={
+                        REVIEWED_TESTNET_ANCHOR_FEE_POLICY.sourceTransactionHash
+                      }
+                      label="Copy reference"
+                    />
+                  </div>
+                </div>
+              )}
+            </section>
+            <section className="mt-4 rounded-xl border border-line bg-[#080d14] p-4">
+              <p className="eyebrow">Connected wallet identity</p>
               <ProofField
                 label="Connected key"
                 value={connection?.publicKey ?? "Not connected"}
@@ -418,26 +526,12 @@ export function DossierAnchorAction({ dossier, job }: Props) {
                   }
                 />
               )}
-            </div>
-            <label className="mt-5 block text-xs font-semibold text-slate-300">
-              Required payment amount, in motes
-              <input
-                className="mt-2 w-full rounded-lg border border-line bg-[#080d14] px-3 py-2.5 font-mono text-sm text-white outline-none focus:border-cyan/60"
-                value={paymentAmount}
-                inputMode="numeric"
-                placeholder="Enter deliberate Testnet payment amount"
-                onChange={(event) => {
-                  setPaymentAmount(event.target.value);
-                  setConnection(null);
-                  setUnsignedTransaction(null);
-                  setTransactionHash("");
-                  setState("reviewing");
-                }}
-              />
-            </label>
+            </section>
             <div className="mt-4 rounded-xl border border-gold/20 bg-gold/[.03] p-3 text-xs leading-5 text-gold/90">
               This creates a real Casper Testnet transaction. Uzoma never holds
-              your wallet keys or submits an unsigned transaction on your behalf.
+              your wallet keys. Transaction submission is relayed through
+              Uzoma’s verification service; Uzoma cannot sign or alter your
+              wallet-approved transaction.
             </div>
             {message && (
               <p
