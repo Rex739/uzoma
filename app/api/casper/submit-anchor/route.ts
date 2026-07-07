@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { relaySignedAnchorTransaction } from "@/lib/casper/submit-anchor-relay";
 import {
+  getSignedTransactionApprovalDiagnostic,
   getSignedTransactionBoundaryDiagnostic,
   type SignedTransactionBoundaryDiagnostic,
 } from "@/lib/casper/signed-transaction-diagnostics";
@@ -56,14 +57,24 @@ export async function POST(request: Request) {
       },
       clientDiagnostic,
     });
+    const approvalFailureCodes = new Set([
+      "NO_APPROVALS",
+      "APPROVAL_SIGNER_MISSING",
+      "APPROVAL_SIGNATURE_MISSING",
+      "APPROVAL_SIGNER_MISMATCH",
+      "APPROVAL_SHAPE_UNSUPPORTED",
+    ]);
     if (
       process.env.NODE_ENV !== "production" &&
       result.status === "failed" &&
-      result.code === "MISSING_APPROVAL"
+      approvalFailureCodes.has(result.code)
     ) {
       const serverDiagnostic = getSignedTransactionBoundaryDiagnostic(
         body.signedTransaction,
       );
+      const approvalDiagnostic = getSignedTransactionApprovalDiagnostic({
+        transactionJson: body.signedTransaction,
+      });
       return NextResponse.json(
         {
           ...result,
@@ -72,6 +83,14 @@ export async function POST(request: Request) {
             serverObservedApprovalCount: serverDiagnostic.approvalCount,
             approvalContainerPath: serverDiagnostic.approvalContainerPath,
             transactionVariant: serverDiagnostic.transactionVariant,
+            approvalCount: approvalDiagnostic.approvalCount,
+            signerPresent: approvalDiagnostic.signerPresent,
+            signaturePresent: approvalDiagnostic.signaturePresent,
+            signerMatchesInitiator:
+              approvalDiagnostic.signerMatchesInitiator,
+            signerFormat: approvalDiagnostic.signerFormat,
+            signatureFormat: approvalDiagnostic.signatureFormat,
+            failureCode: approvalDiagnostic.failureCode,
           },
         },
         { status: 400 },

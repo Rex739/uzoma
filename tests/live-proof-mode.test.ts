@@ -18,7 +18,10 @@ import {
   CasperWalletClientError,
   connectNativeCasperWallet,
   detectNativeCasperWalletProvider,
+  getCasperWalletSignatureByteDiagnostic,
+  normalizeCasperWalletSignatureBytes,
   normalizeWalletSignature,
+  normalizeWalletSignatureWithDiagnostic,
   signWithNativeCasperWallet,
   supportsTransactionV1,
 } from "@/lib/casper/casper-wallet-client";
@@ -45,6 +48,9 @@ const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const testPublicKey =
   "011111111111111111111111111111111111111111111111111111111111111111";
 const testSignature = Uint8Array.from({ length: 64 }, (_, index) => index);
+const testSignatureHex = [...testSignature]
+  .map((byte) => byte.toString(16).padStart(2, "0"))
+  .join("");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -517,6 +523,20 @@ test("live anchor modal uses a reviewed payment policy instead of an editable mo
   );
 });
 
+test("judge-facing dossier view freezes experimental live anchor actions", () => {
+  const source = fs.readFileSync("components/dossier-view.tsx", "utf8");
+
+  assert.equal(source.includes("DossierAnchorAction"), false);
+  assert.equal(source.includes("ANCHOR ACCEPTED DOSSIER"), false);
+  assert.equal(source.includes("Connect Casper Wallet"), false);
+  assert.equal(source.includes("Review in wallet"), false);
+  assert.equal(source.includes("Submit to Casper Testnet"), false);
+  assert.equal(source.includes("payment budget"), false);
+  assert.equal(source.includes("Casper proof readiness"), true);
+  assert.equal(source.includes("Canonical evidence ready"), true);
+  assert.equal(source.includes("DOSSIER HASH VERIFIED"), true);
+});
+
 test("native Casper Wallet detection is SSR-safe and does not connect", async () => {
   await assert.rejects(
     detectNativeCasperWalletProvider({ timeoutMs: 0 }),
@@ -634,12 +654,12 @@ test("signing cancellation does not become failure", async () => {
   );
 });
 
-test("malformed signature blocks submission", () => {
+test("malformed signature without valid hex fallback blocks submission", () => {
   assert.throws(
     () =>
       normalizeWalletSignature({
         cancelled: false,
-        signatureHex: "a".repeat(128),
+        signatureHex: "not-hex",
         signature: [],
       }),
     (error) =>
@@ -650,7 +670,18 @@ test("malformed signature blocks submission", () => {
     () =>
       normalizeWalletSignature({
         cancelled: false,
-        signatureHex: "a".repeat(128),
+        signatureHex: "not-hex",
+      }),
+    (error) =>
+      error instanceof CasperWalletClientError &&
+      error.code === "CASPER_WALLET_SIGNING_ERROR",
+  );
+  assert.throws(
+    () =>
+      normalizeWalletSignature({
+        cancelled: false,
+        signatureHex: "not-hex",
+        signature: "a".repeat(128),
       }),
     (error) =>
       error instanceof CasperWalletClientError &&
@@ -659,14 +690,125 @@ test("malformed signature blocks submission", () => {
 });
 
 test("wallet response normalization uses official Casper Wallet signature bytes", () => {
-  const signature = Uint8Array.from({ length: 64 }, (_, index) => index);
   const normalized = normalizeWalletSignature({
     cancelled: false,
-    signatureHex: "f".repeat(128),
-    signature,
+    signatureHex: testSignatureHex,
+    signature: testSignature,
   });
 
-  assert.deepEqual([...normalized], [...signature]);
+  assert.deepEqual([...normalized], [...testSignature]);
+  assert.deepEqual(
+    normalizeWalletSignatureWithDiagnostic({
+      cancelled: false,
+      signatureHex: testSignatureHex,
+      signature: testSignature,
+    }).diagnostic,
+    {
+      walletResponseReceived: true,
+      cancelled: false,
+      signatureFieldPresent: true,
+      signatureRuntimeCategory: "Uint8Array",
+      primaryNormalization: "passed",
+      signatureHexFieldPresent: true,
+      hexFallbackNormalization: "not used",
+      selectedSource: "signature",
+      normalizedByteLength: 64,
+    },
+  );
+});
+
+test("wallet response normalization uses strict signatureHex fallback only when primary fails", () => {
+  const fromMissingPrimary = normalizeWalletSignatureWithDiagnostic({
+    cancelled: false,
+    signatureHex: `0x${testSignatureHex}`,
+  });
+  assert.deepEqual([...fromMissingPrimary.bytes!], [...testSignature]);
+  assert.equal(fromMissingPrimary.diagnostic.selectedSource, "signatureHex");
+  assert.equal(fromMissingPrimary.diagnostic.hexFallbackNormalization, "passed");
+
+  const fromMalformedPrimary = normalizeWalletSignatureWithDiagnostic({
+    cancelled: false,
+    signatureHex: testSignatureHex,
+    signature: [],
+  });
+  assert.deepEqual([...fromMalformedPrimary.bytes!], [...testSignature]);
+  assert.equal(fromMalformedPrimary.diagnostic.primaryNormalization, "failed");
+  assert.equal(fromMalformedPrimary.diagnostic.selectedSource, "signatureHex");
+});
+
+test("wallet response normalization rejects mismatched signature and signatureHex", () => {
+  assert.throws(
+    () =>
+      normalizeWalletSignature({
+        cancelled: false,
+        signatureHex: "f".repeat(128),
+        signature: testSignature,
+      }),
+    /conflicting signature representations/,
+  );
+});
+
+test("strict signature byte normalization accepts browser runtime byte shapes", () => {
+  const bytes = Uint8Array.from({ length: 64 }, (_, index) => index);
+  const arrayBuffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  );
+  const typedView = new Uint16Array(arrayBuffer.slice(0));
+  const dataView = new DataView(arrayBuffer.slice(0));
+  const numberArray = [...bytes];
+  const dataWrapper = { data: [...bytes] };
+  const numericKeyed = Object.fromEntries(
+    [...bytes].map((byte, index) => [String(index), byte]),
+  ) as Record<string, number> & { length: number };
+  numericKeyed.length = bytes.length;
+
+  assert.deepEqual([...normalizeCasperWalletSignatureBytes(bytes)], [...bytes]);
+  assert.deepEqual(
+    [...normalizeCasperWalletSignatureBytes(arrayBuffer)],
+    [...bytes],
+  );
+  assert.equal(normalizeCasperWalletSignatureBytes(typedView).byteLength, 64);
+  assert.deepEqual(
+    [...normalizeCasperWalletSignatureBytes(dataView)],
+    [...bytes],
+  );
+  assert.deepEqual(
+    [...normalizeCasperWalletSignatureBytes(numberArray)],
+    [...bytes],
+  );
+  assert.deepEqual(
+    [...normalizeCasperWalletSignatureBytes(dataWrapper)],
+    [...bytes],
+  );
+  assert.deepEqual(
+    [...normalizeCasperWalletSignatureBytes(numericKeyed)],
+    [...bytes],
+  );
+  assert.deepEqual(getCasperWalletSignatureByteDiagnostic(bytes), {
+    category: "uint8array",
+    byteLength: 64,
+    ok: true,
+  });
+});
+
+test("strict signature byte normalization rejects strings and invalid bytes", () => {
+  assert.throws(
+    () => normalizeCasperWalletSignatureBytes("a".repeat(128)),
+    /malformed signature bytes/,
+  );
+  assert.throws(
+    () => normalizeCasperWalletSignatureBytes([0, 1, 256]),
+    /malformed signature bytes/,
+  );
+  assert.throws(
+    () => normalizeCasperWalletSignatureBytes([]),
+    /malformed signature bytes/,
+  );
+  assert.equal(
+    getCasperWalletSignatureByteDiagnostic("a".repeat(128)).category,
+    "string",
+  );
 });
 
 test("signed transaction preserves package-call fields and signer", () => {
@@ -688,7 +830,7 @@ test("signed transaction preserves package-call fields and signer", () => {
     transaction: unsigned.transaction,
     signatureResponse: {
       cancelled: false,
-      signatureHex: "0".repeat(128),
+      signatureHex: testSignatureHex,
       signature: testSignature,
     },
     signingPublicKeyHex: testPublicKey,
@@ -758,7 +900,7 @@ test("official signature application returns the signed transaction used for rel
     transaction: unsigned.transaction,
     signatureResponse: {
       cancelled: false,
-      signatureHex: "0".repeat(128),
+      signatureHex: testSignatureHex,
       signature: testSignature,
     },
     signingPublicKeyHex: testPublicKey,

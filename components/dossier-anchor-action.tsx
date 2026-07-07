@@ -10,8 +10,8 @@ import {
   REVIEWED_TESTNET_ANCHOR_FEE_POLICY,
 } from "@/lib/casper/anchor-fee-policy";
 import {
-  CasperWalletClientError,
   connectNativeCasperWallet,
+  messageForWalletError,
   requestNativeCasperWalletSignature,
   type CasperWalletConnection,
 } from "@/lib/casper/casper-wallet-client";
@@ -70,28 +70,6 @@ function ProofField({
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function messageForWalletError(error: unknown) {
-  if (error instanceof CasperWalletClientError) {
-    const messages: Record<typeof error.code, string> = {
-      CASPER_WALLET_NOT_INSTALLED:
-        "Casper Wallet is not installed or is unavailable in this browser.",
-      CASPER_WALLET_LOADING: "Casper Wallet is still loading. Try again.",
-      CASPER_WALLET_LOCKED: "Casper Wallet is locked. Unlock it and retry.",
-      CASPER_WALLET_CONNECTION_DECLINED: "Wallet connection declined.",
-      CASPER_WALLET_NO_ACTIVE_ACCOUNT:
-        "No active Casper Wallet account was returned.",
-      CASPER_WALLET_TRANSACTION_V1_UNSUPPORTED:
-        "The active account does not advertise sign-transactionv1 support.",
-      CASPER_WALLET_PROVIDER_UNSUPPORTED:
-        "Casper Wallet provider API is unavailable or unsupported.",
-      CASPER_WALLET_SIGNING_CANCELLED: "SIGNING CANCELLED",
-      CASPER_WALLET_SIGNING_ERROR: "Casper Wallet signing failed.",
-    };
-    return messages[error.code];
-  }
-  return error instanceof Error ? error.message : "Live anchor flow failed.";
 }
 
 async function verifyAnchor(input: {
@@ -292,6 +270,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
       getSignedAnchorTransactionRelayJson({
         transaction: signed,
         expectedSignerPublicKey: connection.publicKey,
+        expected: fresh.payloadPreview,
       });
       setUnsignedTransaction({ ...fresh, transaction: signed });
       setState("signed");
@@ -313,6 +292,7 @@ export function DossierAnchorAction({ dossier, job }: Props) {
       const signedTransaction = getSignedAnchorTransactionRelayJson({
         transaction: unsignedTransaction.transaction,
         expectedSignerPublicKey: connection.publicKey,
+        expected: unsignedTransaction.payloadPreview,
       });
       const submittedHash = await submitAnchorThroughRelay({
         signedTransaction,

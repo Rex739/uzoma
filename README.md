@@ -11,7 +11,9 @@ Uzoma is an agent-native delivery workspace that turns smart-contract requests i
 - **Evidence-backed Build Dossiers** — accepted delivery records include artifacts, reviews, deterministic hashes, and artifact roots.
 - **Casper Testnet proof** — the deployed `BuildDossierRegistry` contains a confirmed anchor for the seeded `demo-escrow` dossier.
 
-New jobs are planned live when configured, but are not automatically anchored; Casper anchoring remains a deliberate action after accepted evidence is ready.
+New jobs are planned live when configured and remain accepted local evidence
+records. They are structured for future explicit proof, but fresh
+user-controlled anchoring is not enabled in the submission build.
 
 ## The problem
 
@@ -75,7 +77,7 @@ Provider failures are mapped to safe categories for unavailable or unsupported m
 
 When the key is missing or the provider fails, Uzoma does not impersonate a live response. The create-request dialog offers a separate, explicit **Use deterministic demo plan** action. Those jobs are stored as `agentMode: deterministic_demo`; successful API plans are stored as `agentMode: live`.
 
-Lead Agent planning never deploys a contract, signs a transaction, sends a payment, or anchors a dossier. Casper anchoring remains a separate operator-controlled action after local acceptance.
+Lead Agent planning never deploys a contract, signs a transaction, sends a payment, or anchors a dossier. Fresh user-controlled anchoring remains a planned integration after local acceptance evidence is ready.
 
 Requester priority and Lead Agent assurance are deliberately separate:
 
@@ -102,7 +104,7 @@ Uzoma does not execute escrow payments. It demonstrates the delivery and proof l
 | MCP specialist discovery           | Planned integration                           |
 | x402 settlement                    | Planned integration; mock delivery accounting |
 | Browser wallet signing             | Planned integration                           |
-| Automatic anchoring of future jobs | Explicit operator action only                 |
+| Automatic anchoring of future jobs | Not enabled                                   |
 
 The browser contains no private key handling, signing, contract-write, payment, or automatic-anchoring logic. Local workflow status and Casper anchor status are modeled separately.
 

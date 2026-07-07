@@ -1,9 +1,10 @@
 import { REVIEWED_TESTNET_ANCHOR_FEE_POLICY } from "@/lib/casper/anchor-fee-policy";
 import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-anchor-config";
 import {
-  getSignedTransactionApprovalRecords,
+  getSignedTransactionApprovalDiagnostic,
   unwrapSignedTransactionV1Json,
   type SignedTransactionBoundaryDiagnostic,
+  type SignedTransactionApprovalDiagnostic,
 } from "@/lib/casper/signed-transaction-diagnostics";
 
 const DEFAULT_RPC = "https://node.testnet.casper.network/rpc";
@@ -37,6 +38,17 @@ export type SubmitAnchorRelayResult =
         serverObservedApprovalCount: number;
         approvalContainerPath: string | null;
         transactionVariant: string;
+        approvalCount?: number;
+        signerPresent?: boolean;
+        signaturePresent?: boolean;
+        signerMatchesInitiator?: boolean;
+        signerFormat?: string;
+        signatureFormat?: string;
+        failureCode?: string;
+        rpcMethodUsed?: string;
+        paramsContainerShape?: "array" | "object" | "unknown";
+        transactionWrapperShape?: "Version1" | "raw-v1" | "sdk-instance" | "unknown";
+        outgoingRequestSchemaValid?: boolean;
       };
     };
 
@@ -108,21 +120,24 @@ function expectedU32Bytes(value: number) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function getValidApprovalSigner(transaction: unknown) {
-  return getSignedTransactionApprovalRecords(transaction)
-    .map((approval) => {
-      const signer = approval.signer;
-      const signature = approval.signature;
-      return {
-        signer,
-        valid:
-        typeof signer === "string" &&
-        /^0[12][0-9a-f]{64}$/i.test(signer) &&
-        typeof signature === "string" &&
-        /^[0-9a-f]{128}([0-9a-f]{2})?$/i.test(signature),
-      };
-    })
-    .find((approval) => approval.valid)?.signer as string | undefined;
+function messageForApprovalFailure(
+  code: NonNullable<SignedTransactionApprovalDiagnostic["failureCode"]>,
+) {
+  const messages = {
+    NO_APPROVALS: "Signed transaction approval is required.",
+    APPROVAL_SIGNER_MISSING:
+      "Signed transaction approval is missing a signer.",
+    APPROVAL_SIGNATURE_MISSING:
+      "Signed transaction approval is missing a signature.",
+    APPROVAL_SIGNER_MISMATCH:
+      "Signed transaction approval signer does not match the transaction initiator.",
+    APPROVAL_SHAPE_UNSUPPORTED:
+      "Signed transaction approval shape is unsupported.",
+  } satisfies Record<
+    NonNullable<SignedTransactionApprovalDiagnostic["failureCode"]>,
+    string
+  >;
+  return messages[code];
 }
 
 function fail(code: string, message: string): never {
@@ -131,6 +146,27 @@ function fail(code: string, message: string): never {
 
 function unwrapTransactionV1(signedTransaction: unknown) {
   return unwrapSignedTransactionV1Json(signedTransaction).transaction;
+}
+
+function paramsContainerShape(value: unknown): "array" | "object" | "unknown" {
+  if (Array.isArray(value)) return "array";
+  if (value && typeof value === "object") return "object";
+  return "unknown";
+}
+
+function transactionWrapperShape(
+  value: unknown,
+): "Version1" | "raw-v1" | "sdk-instance" | "unknown" {
+  const record = asRecord(value);
+  if (record?.Version1) return "Version1";
+  if (record?.payload && Array.isArray(record.approvals)) return "raw-v1";
+  if (
+    typeof asRecord(value)?.toJSON === "function" &&
+    typeof asRecord(value)?.getTransactionV1 === "function"
+  ) {
+    return "sdk-instance";
+  }
+  return "unknown";
 }
 
 function exactMatch(actual: unknown, expected: unknown, code: string) {
@@ -229,17 +265,71 @@ export function validateSignedAnchorTransaction(input: SubmitAnchorRelayInput) {
     REVIEWED_TESTNET_ANCHOR_FEE_POLICY.standardPayment,
     "STANDARD_PAYMENT_MISMATCH",
   );
-  const approvalSigner = getValidApprovalSigner(transaction);
-  if (!approvalSigner) {
-    fail("MISSING_APPROVAL", "Signed transaction approval is required.");
+  const approvalDiagnostic = getSignedTransactionApprovalDiagnostic({
+    transactionJson: transaction,
+  });
+  if (approvalDiagnostic.failureCode) {
+    fail(
+      approvalDiagnostic.failureCode,
+      messageForApprovalFailure(approvalDiagnostic.failureCode),
+    );
   }
-  exactMatch(
-    approvalSigner.toLowerCase(),
-    stringAt(transaction, ["payload", "initiator_addr", "PublicKey"])?.toLowerCase(),
-    "APPROVAL_SIGNER_MISMATCH",
-  );
 
   return transaction;
+}
+
+export function buildAccountPutTransactionRequest({
+  id = Date.now(),
+  signedTransactionV1,
+}: {
+  id?: number;
+  signedTransactionV1: unknown;
+}) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "account_put_transaction",
+    params: [
+      {
+        name: "transaction",
+        value: {
+          Version1: signedTransactionV1,
+        },
+      },
+    ],
+  };
+}
+
+export function getAccountPutTransactionEnvelopeDiagnostic(request: unknown) {
+  const record = asRecord(request);
+  const params = record?.params;
+  const firstParam = Array.isArray(params) ? asRecord(params[0]) : undefined;
+  const value = asRecord(firstParam?.value);
+  return {
+    rpcMethodUsed:
+      typeof record?.method === "string" ? record.method : "unknown",
+    paramsContainerShape: paramsContainerShape(params),
+    transactionWrapperShape: transactionWrapperShape(value),
+    outgoingRequestSchemaValid:
+      record?.jsonrpc === "2.0" &&
+      record?.method === "account_put_transaction" &&
+      Array.isArray(params) &&
+      params.length === 1 &&
+      firstParam?.name === "transaction" &&
+      transactionWrapperShape(value) === "Version1" &&
+      Boolean(asRecord(value?.Version1)?.payload),
+  };
+}
+
+export function assertAccountPutTransactionEnvelope(request: unknown) {
+  const diagnostic = getAccountPutTransactionEnvelopeDiagnostic(request);
+  if (!diagnostic.outgoingRequestSchemaValid) {
+    throw new SubmitAnchorValidationError(
+      "INVALID_RPC_ENVELOPE",
+      "Casper RPC transaction submission envelope is invalid.",
+    );
+  }
+  return diagnostic;
 }
 
 function extractTransactionHash(json: unknown) {
@@ -259,19 +349,15 @@ export async function relaySignedAnchorTransaction(
 ): Promise<SubmitAnchorRelayResult> {
   try {
     const transaction = validateSignedAnchorTransaction(input);
+    const rpcRequest = buildAccountPutTransactionRequest({
+      signedTransactionV1: transaction,
+    });
+    const envelopeDiagnostic =
+      assertAccountPutTransactionEnvelope(rpcRequest);
     const response = await fetch(process.env.CASPER_TESTNET_RPC || DEFAULT_RPC, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: Date.now(),
-        method: "account_put_transaction",
-        params: {
-          transaction: {
-            Version1: transaction,
-          },
-        },
-      }),
+      body: JSON.stringify(rpcRequest),
     });
     const json = (await response.json()) as {
       error?: { code?: number; message?: string };
@@ -282,6 +368,25 @@ export async function relaySignedAnchorTransaction(
         status: "failed",
         code: "CASPER_RPC_REJECTED",
         message: json.error.message || "Casper Testnet rejected the transaction.",
+        diagnostic:
+          process.env.NODE_ENV === "production"
+            ? undefined
+            : {
+                serverObservedApprovalCount:
+                  getSignedTransactionApprovalDiagnostic({
+                    transactionJson: transaction,
+                  }).approvalCount,
+                approvalContainerPath:
+                  unwrapSignedTransactionV1Json(transaction).approvalContainerPath,
+                transactionVariant:
+                  unwrapSignedTransactionV1Json(transaction).transactionVariant,
+                rpcMethodUsed: envelopeDiagnostic.rpcMethodUsed,
+                paramsContainerShape: envelopeDiagnostic.paramsContainerShape,
+                transactionWrapperShape:
+                  envelopeDiagnostic.transactionWrapperShape,
+                outgoingRequestSchemaValid:
+                  envelopeDiagnostic.outgoingRequestSchemaValid,
+              },
       };
     }
     return {

@@ -5,8 +5,8 @@ import { LIVE_PROOF_ANCHOR_CONFIG } from "@/lib/casper/live-proof-anchor-config"
 import { normalizeWalletSignature } from "@/lib/casper/casper-wallet-client";
 import type { CasperWalletSignatureResponse } from "@/lib/casper/casper-wallet-client";
 import {
-  getSignedTransactionApprovalRecords,
   getSignedTransactionBoundaryDiagnostic,
+  getSignedTransactionApprovalDiagnostic,
 } from "@/lib/casper/signed-transaction-diagnostics";
 
 const CasperSdk = (
@@ -62,6 +62,39 @@ export type SignedAnchorApprovalSummary = {
   signerMatches: boolean;
   signaturePresent: boolean;
 };
+
+export type SignatureAttachmentFailureCategory =
+  | "TRANSACTION_WRAPPER_INVALID"
+  | "TRANSACTION_V1_ORIGIN_MISSING"
+  | "APPROVAL_ARRAY_UNAVAILABLE"
+  | "SIGNATURE_ATTACHMENT_UNEXPECTED_FAILURE";
+
+export type SignatureAttachmentDiagnostic = {
+  category: SignatureAttachmentFailureCategory;
+  wrapperConstructorName: string;
+  hasGetTransactionV1: boolean;
+  transactionV1Returned: boolean;
+  transactionV1ApprovalArrayExists: boolean;
+  approvalArrayExists: boolean;
+  approvalCountBefore: number;
+  approvalCountAfter: number;
+  errorClassName?: string;
+  sanitizedErrorMessage?: string;
+};
+
+export class SignatureAttachmentError extends Error {
+  category: SignatureAttachmentFailureCategory;
+  diagnostic: SignatureAttachmentDiagnostic;
+
+  constructor(diagnostic: SignatureAttachmentDiagnostic) {
+    super(
+      "Wallet approval could not be attached to the transaction. No transaction was submitted.",
+    );
+    this.name = "SignatureAttachmentError";
+    this.category = diagnostic.category;
+    this.diagnostic = diagnostic;
+  }
+}
 
 function requireNonEmpty(value: string, label: string) {
   const trimmed = value.trim();
@@ -204,16 +237,77 @@ function approvalSummaryFromJson(
   expectedSignerPublicKey: string,
 ): SignedAnchorApprovalSummary {
   const diagnostic = getSignedTransactionBoundaryDiagnostic(walletJson);
-  const matchingApproval = getSignedTransactionApprovalRecords(walletJson).find(
-    (approval) =>
-      typeof approval.signer === "string" &&
-      approval.signer.toLowerCase() === expectedSignerPublicKey.toLowerCase(),
-  );
-  const signature = matchingApproval?.signature;
+  const approval = getSignedTransactionApprovalDiagnostic({
+    transactionJson: walletJson,
+    connectedPublicKey: expectedSignerPublicKey,
+  });
   return {
     approvalCount: diagnostic.approvalCount,
-    signerMatches: Boolean(matchingApproval),
-    signaturePresent: typeof signature === "string" && signature.length > 0,
+    signerMatches: approval.signerMatchesConnectedAccount === true,
+    signaturePresent: approval.signaturePresent,
+  };
+}
+
+function approvalArrayFacts(walletJson: unknown) {
+  const approvals = asRecord(walletJson)?.approvals;
+  return {
+    approvalArrayExists: Array.isArray(approvals),
+    approvalCount: Array.isArray(approvals) ? approvals.length : 0,
+  };
+}
+
+export function getSafeApprovalCount(walletJson: unknown) {
+  return approvalArrayFacts(walletJson).approvalCount;
+}
+
+function sanitizedErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message.slice(0, 160)
+    : "Unknown signature attachment error.";
+}
+
+function attachmentDiagnostic({
+  transaction,
+  category,
+  approvalCountBefore,
+  error,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  category: SignatureAttachmentFailureCategory;
+  approvalCountBefore: number;
+  error?: unknown;
+}): SignatureAttachmentDiagnostic {
+  let walletJson: unknown;
+  try {
+    walletJson = transaction.toJSON();
+  } catch {
+    walletJson = null;
+  }
+  const approvalFacts = approvalArrayFacts(walletJson);
+  let transactionV1Returned = false;
+  let transactionV1ApprovalArrayExists = false;
+  const hasGetTransactionV1 = typeof transaction.getTransactionV1 === "function";
+  if (hasGetTransactionV1) {
+    try {
+      const transactionV1 = transaction.getTransactionV1();
+      transactionV1Returned = Boolean(transactionV1);
+      transactionV1ApprovalArrayExists = Array.isArray(transactionV1?.approvals);
+    } catch {
+      transactionV1Returned = false;
+      transactionV1ApprovalArrayExists = false;
+    }
+  }
+  return {
+    category,
+    wrapperConstructorName: transaction.constructor.name,
+    hasGetTransactionV1,
+    transactionV1Returned,
+    transactionV1ApprovalArrayExists,
+    approvalArrayExists: approvalFacts.approvalArrayExists,
+    approvalCountBefore,
+    approvalCountAfter: approvalFacts.approvalCount,
+    errorClassName: error instanceof Error ? error.constructor.name : undefined,
+    sanitizedErrorMessage: error ? sanitizedErrorMessage(error) : undefined,
   };
 }
 
@@ -230,11 +324,20 @@ export function getSignedAnchorApprovalSummary({
 export function getSignedAnchorTransactionRelayJson({
   transaction,
   expectedSignerPublicKey,
+  expected,
 }: {
   transaction: CasperSdkTypes.Transaction;
   expectedSignerPublicKey: string;
+  expected?: AnchorDossierPayloadPreview;
 }) {
   const transactionJson = transaction.toJSON();
+  if (expected) {
+    assertAnchorTransactionIntegrity({
+      transaction,
+      expected,
+      requireSignature: true,
+    });
+  }
   const summary = getSignedAnchorApprovalSummary({
     transactionJson,
     expectedSignerPublicKey,
@@ -349,7 +452,7 @@ export function assertAnchorTransactionIntegrity({
   }
 }
 
-export function applyWalletSignatureToAnchorTransaction({
+export function attachWalletSignatureToAnchorTransaction({
   transaction,
   signatureResponse,
   signingPublicKeyHex,
@@ -365,27 +468,88 @@ export function applyWalletSignatureToAnchorTransaction({
   }
   const signature = normalizeWalletSignature(signatureResponse);
   const publicKey = CasperSdk.PublicKey.fromHex(signingPublicKeyHex);
-  const transactionV1 = transaction.getTransactionV1();
-  if (!transactionV1) {
-    throw new Error(
-      "Wallet approval could not be attached to the transaction. No transaction was submitted.",
+  const beforeJson = transaction.toJSON();
+  const beforeFacts = approvalArrayFacts(beforeJson);
+  if (typeof transaction.setSignature !== "function") {
+    throw new SignatureAttachmentError(
+      attachmentDiagnostic({
+        transaction,
+        category: "TRANSACTION_WRAPPER_INVALID",
+        approvalCountBefore: beforeFacts.approvalCount,
+      }),
     );
   }
-  const signedTransactionV1 = CasperSdk.TransactionV1.setSignature(
-    transactionV1,
-    signature,
-    publicKey,
-  );
-  const signedTransaction =
-    CasperSdk.Transaction.fromTransactionV1(signedTransactionV1);
+  if (!beforeFacts.approvalArrayExists) {
+    throw new SignatureAttachmentError(
+      attachmentDiagnostic({
+        transaction,
+        category: "APPROVAL_ARRAY_UNAVAILABLE",
+        approvalCountBefore: beforeFacts.approvalCount,
+      }),
+    );
+  }
+  const beforeBoundary = getSignedTransactionBoundaryDiagnostic(beforeJson);
+  if (beforeBoundary.transactionVariant !== "TransactionV1") {
+    throw new SignatureAttachmentError(
+      attachmentDiagnostic({
+        transaction,
+        category: "TRANSACTION_V1_ORIGIN_MISSING",
+        approvalCountBefore: beforeFacts.approvalCount,
+      }),
+    );
+  }
+  try {
+    transaction.setSignature(signature, publicKey);
+  } catch (error) {
+    throw new SignatureAttachmentError(
+      attachmentDiagnostic({
+        transaction,
+        category: "SIGNATURE_ATTACHMENT_UNEXPECTED_FAILURE",
+        approvalCountBefore: beforeFacts.approvalCount,
+        error,
+      }),
+    );
+  }
+  const signedJson = transaction.toJSON();
+  const afterFacts = approvalArrayFacts(signedJson);
+  if (!afterFacts.approvalArrayExists) {
+    throw new SignatureAttachmentError(
+      attachmentDiagnostic({
+        transaction,
+        category: "APPROVAL_ARRAY_UNAVAILABLE",
+        approvalCountBefore: beforeFacts.approvalCount,
+      }),
+    );
+  }
+  return { transaction, signedJson };
+}
+
+export function applyWalletSignatureToAnchorTransaction({
+  transaction,
+  signatureResponse,
+  signingPublicKeyHex,
+  expected,
+}: {
+  transaction: CasperSdkTypes.Transaction;
+  signatureResponse: CasperWalletSignatureResponse;
+  signingPublicKeyHex: string;
+  expected: AnchorDossierPayloadPreview;
+}) {
+  const attached = attachWalletSignatureToAnchorTransaction({
+    transaction,
+    signatureResponse,
+    signingPublicKeyHex,
+    expected,
+  });
   assertAnchorTransactionIntegrity({
-    transaction: signedTransaction,
+    transaction: attached.transaction,
     expected,
     requireSignature: true,
   });
   getSignedAnchorTransactionRelayJson({
-    transaction: signedTransaction,
+    transaction: attached.transaction,
     expectedSignerPublicKey: signingPublicKeyHex,
+    expected,
   });
-  return signedTransaction;
+  return attached.transaction;
 }
