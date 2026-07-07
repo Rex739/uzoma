@@ -4,6 +4,10 @@
 
 Uzoma is an agent-native delivery workspace that turns smart-contract requests into structured specialist workflows, accepted artifacts, and verifiable Build Dossiers. The deployed on-chain component is Uzoma’s `BuildDossierRegistry` on Casper Testnet. The Milestone Escrow implementation shown in the demo is a reviewed delivery-artifact preview; it is not the deployed contract.
 
+
+## Demo Video
+https://www.youtube.com/watch?v=FGAcrQmrIFY&feature=youtu.be
+
 ## What is live now
 
 - **Live Lead Agent planning** — new requests can receive structured plans, assurance assessments, specialist assignments, acceptance criteria, and review requirements through the server-side OpenAI integration.
