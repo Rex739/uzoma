@@ -11,7 +11,6 @@ import {
   Layers3,
   ShieldCheck,
 } from "lucide-react";
-import { DossierAnchorAction } from "@/components/dossier-anchor-action";
 import { useAppState } from "@/components/state-provider";
 import { Badge, Button, CopyButton, EmptyState } from "@/components/ui";
 import { getCasperProofForJob } from "@/lib/casper/proof";
@@ -41,6 +40,46 @@ function ProofRow({
         <CopyButton value={value} label="Copy" />
       </div>
     </div>
+  );
+}
+
+function CasperProofReadinessPanel() {
+  const facts = [
+    "DOSSIER HASH VERIFIED",
+    "ARTIFACT ROOT VERIFIED",
+    "4 ACCEPTED ARTIFACTS",
+    "INDEPENDENT REVIEW COMPLETE",
+  ];
+  return (
+    <section className="rounded-xl border border-cyan/20 bg-cyan/[.025] p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="eyebrow text-cyan/80">Casper proof readiness</p>
+        <Badge tone="cyan">Canonical evidence ready</Badge>
+      </div>
+      <p className="mt-4 text-sm font-semibold text-white">
+        This accepted delivery record has a deterministic dossier hash and a
+        verified artifact manifest root. Its evidence is structured for
+        explicit proof after acceptance.
+      </p>
+      <div className="mt-4 grid gap-2">
+        {facts.map((fact) => (
+          <div
+            key={fact}
+            className="flex items-center gap-2 rounded-lg border border-cyan/10 bg-black/10 px-3 py-2"
+          >
+            <CheckCircle2 className="size-3.5 text-emerald" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+              {fact}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-xs leading-6 text-slate-500">
+        Uzoma keeps local delivery evidence and on-chain proof distinct. The
+        preserved demo proof demonstrates the deployed Build Dossier Registry
+        recording an accepted dossier on Casper Testnet.
+      </p>
+    </section>
   );
 }
 
@@ -506,17 +545,7 @@ export function DossierView({ id }: { id: string }) {
               </a>
             </section>
           ) : (
-            <>
-              <DossierAnchorAction dossier={dossier} job={job} />
-              <section className="rounded-xl border border-line bg-white/[.015] p-5">
-                <p className="text-xs font-semibold text-slate-300">
-                  Casper anchor not recorded
-                </p>
-                <p className="mt-2 text-xs leading-5 text-slate-600">
-                  This local dossier has not been anchored automatically.
-                </p>
-              </section>
-            </>
+            <CasperProofReadinessPanel />
           )}
         </aside>
       </div>

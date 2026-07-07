@@ -1,20 +1,37 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { afterEach, test } from "node:test";
+import type * as CasperSdkTypes from "casper-js-sdk";
+import * as casperSdkModule from "casper-js-sdk";
 import { POST as submitAnchorPost } from "../app/api/casper/submit-anchor/route";
 import { REVIEWED_TESTNET_ANCHOR_FEE_POLICY } from "../lib/casper/anchor-fee-policy";
 import {
   applyWalletSignatureToAnchorTransaction,
   buildAnchorDossierUnsignedTransaction,
   buildAnchorDossierTransaction,
+  getSignedAnchorApprovalSummary,
   LIVE_PROOF_ANCHOR_CONFIG,
   type AnchorDossierTransactionInput,
 } from "../lib/casper/live-proof-transaction";
-import { getSignedTransactionBoundaryDiagnostic } from "../lib/casper/signed-transaction-diagnostics";
 import {
+  canonicalizeCasperPublicKey,
+  getSignedTransactionApprovalDiagnostic,
+  getSignedTransactionBoundaryDiagnostic,
+  publicKeysMatch,
+} from "../lib/casper/signed-transaction-diagnostics";
+import {
+  assertAccountPutTransactionEnvelope,
+  buildAccountPutTransactionRequest,
+  getAccountPutTransactionEnvelopeDiagnostic,
   relaySignedAnchorTransaction,
   validateSignedAnchorTransaction,
 } from "../lib/casper/submit-anchor-relay";
+
+const CasperSdk = (
+  "default" in casperSdkModule
+    ? casperSdkModule.default
+    : casperSdkModule
+) as unknown as typeof CasperSdkTypes;
 
 const validInput: AnchorDossierTransactionInput = {
   signerPublicKey:
@@ -28,6 +45,20 @@ const validInput: AnchorDossierTransactionInput = {
   paymentAmount: REVIEWED_TESTNET_ANCHOR_FEE_POLICY.paymentAmountMotes,
 };
 const testSignature = Uint8Array.from({ length: 64 }, (_, index) => index);
+const testSignatureHex = [...testSignature]
+  .map((byte) => byte.toString(16).padStart(2, "0"))
+  .join("");
+
+function generateSecp256k1PublicKeyStartingWith(prefix: "02" | "03") {
+  for (let index = 0; index < 500; index += 1) {
+    const key = CasperSdk.PrivateKey.generate(CasperSdk.KeyAlgorithm.SECP256K1)
+      .publicKey
+      .toHex()
+      .toLowerCase();
+    if (key.slice(2, 4) === prefix) return key;
+  }
+  throw new Error(`Could not generate Secp256k1 public key starting ${prefix}`);
+}
 
 const originalFetch = globalThis.fetch;
 
@@ -107,6 +138,14 @@ function signedAnchorTransaction(input: AnchorDossierTransactionInput = validInp
       signature: `01${"a".repeat(128)}`,
     },
   ];
+  return transaction;
+}
+
+function signedAnchorTransactionWithApproval(approval: Record<string, unknown>) {
+  const transaction = structuredClone(
+    buildAnchorDossierTransaction(validInput).transactionV1Json.Version1,
+  ) as TransactionV1["Version1"];
+  transaction.approvals = [approval];
   return transaction;
 }
 
@@ -265,15 +304,17 @@ test("server relay rejects unsigned anchor transactions", async () => {
       serverObservedApprovalCount: number;
       approvalContainerPath: string | null;
       transactionVariant: string;
+      failureCode?: string;
     };
   };
 
   assert.equal(response.status, 400);
   assert.equal(json.status, "failed");
-  assert.equal(json.code, "MISSING_APPROVAL");
+  assert.equal(json.code, "NO_APPROVALS");
   assert.equal(json.diagnostic?.serverObservedApprovalCount, 0);
   assert.equal(json.diagnostic?.approvalContainerPath, "approvals");
   assert.equal(json.diagnostic?.transactionVariant, "TransactionV1");
+  assert.equal(json.diagnostic?.failureCode, "NO_APPROVALS");
 });
 
 test("SDK signed TransactionV1 serialization survives relay boundary parsing", () => {
@@ -283,7 +324,7 @@ test("SDK signed TransactionV1 serialization survives relay boundary parsing", (
     transaction: unsigned.transaction,
     signatureResponse: {
       cancelled: false,
-      signatureHex: "0".repeat(128),
+      signatureHex: testSignatureHex,
       signature: testSignature,
     },
     signingPublicKeyHex: validInput.signerPublicKey,
@@ -305,6 +346,26 @@ test("SDK signed TransactionV1 serialization survives relay boundary parsing", (
   assert.equal(signedDiagnostic.hasSigner, true);
   assert.equal(signedDiagnostic.hasNonEmptySignature, true);
   assert.equal(signedDiagnostic.payloadShapeValid, true);
+  assert.deepEqual(
+    getSignedTransactionApprovalDiagnostic({
+      transactionJson: parsedSignedJson,
+      connectedPublicKey: validInput.signerPublicKey,
+    }),
+    {
+      approvalCount: 1,
+      approvalKeys: ["signature", "signer"],
+      signerPresent: true,
+      signaturePresent: true,
+      signerMatchesInitiator: true,
+      signerMatchesConnectedAccount: true,
+      signerFormat: "tagged",
+      signatureFormat: "hex",
+      signerFieldName: "signer",
+      signatureFieldName: "signature",
+      transactionInitiatorFormat: "tagged",
+      failureCode: undefined,
+    },
+  );
   assert.doesNotThrow(() =>
     validateSignedAnchorTransaction({
       signedTransaction: parsedSignedJson,
@@ -313,7 +374,159 @@ test("SDK signed TransactionV1 serialization survives relay boundary parsing", (
   );
   expectRelayValidationCode(
     JSON.parse(JSON.stringify(unsignedJson)),
-    "MISSING_APPROVAL",
+    "NO_APPROVALS",
+  );
+});
+
+test("wrapper instance setSignature is the production wallet attachment path", () => {
+  const unsigned = buildAnchorDossierUnsignedTransaction(validInput);
+  const unsignedJson = unsigned.transaction.toJSON() as { approvals?: unknown[] };
+
+  assert.equal(unsignedJson.approvals?.length, 0);
+
+  const result = unsigned.transaction.setSignature(
+    testSignature,
+    CasperSdk.PublicKey.fromHex(validInput.signerPublicKey),
+  );
+
+  const signedJson = unsigned.transaction.toJSON() as { approvals?: unknown[] };
+  const summary = getSignedAnchorApprovalSummary({
+    transactionJson: signedJson,
+    expectedSignerPublicKey: validInput.signerPublicKey,
+  });
+
+  assert.equal(result, undefined);
+  assert.equal(signedJson.approvals?.length, 1);
+  assert.deepEqual(summary, {
+    approvalCount: 1,
+    signerMatches: true,
+    signaturePresent: true,
+  });
+  assert.doesNotThrow(() =>
+    validateSignedAnchorTransaction({
+      signedTransaction: signedJson,
+      expected: {
+        jobId: validInput.jobId,
+        dossierHash: validInput.dossierHash,
+        artifactRootHash: validInput.artifactRootHash,
+        artifactCount: validInput.artifactCount,
+        expectedPackageHash: LIVE_PROOF_ANCHOR_CONFIG.packageHash,
+        expectedNetwork: LIVE_PROOF_ANCHOR_CONFIG.chainName,
+      },
+    }),
+  );
+});
+
+test("SDK canonicalizes Ed25519 and Secp256k1 Casper public keys exactly", () => {
+  const ed25519Key = validInput.signerPublicKey;
+  const secp02Key = generateSecp256k1PublicKeyStartingWith("02");
+  const secp03Key = generateSecp256k1PublicKeyStartingWith("03");
+  const differentSecpKey = generateSecp256k1PublicKeyStartingWith("02");
+
+  assert.equal(canonicalizeCasperPublicKey(ed25519Key), ed25519Key);
+  assert.equal(canonicalizeCasperPublicKey(`public-key:${ed25519Key}`), ed25519Key);
+  assert.equal(canonicalizeCasperPublicKey(`hex:${secp02Key}`), secp02Key);
+  assert.equal(canonicalizeCasperPublicKey(secp02Key), secp02Key);
+  assert.equal(canonicalizeCasperPublicKey(secp03Key), secp03Key);
+  assert.equal(secp02Key.length, 68);
+  assert.equal(secp03Key.length, 68);
+  assert.equal(secp02Key.slice(0, 4), "0202");
+  assert.equal(secp03Key.slice(0, 4), "0203");
+  assert.equal(publicKeysMatch(`public-key:${secp02Key}`, secp02Key), true);
+  assert.equal(publicKeysMatch(secp02Key, differentSecpKey), false);
+  assert.equal(canonicalizeCasperPublicKey(ed25519Key.slice(2)), null);
+  assert.equal(canonicalizeCasperPublicKey(secp02Key.slice(2)), null);
+});
+
+test("SDK-signed Secp256k1 transaction passes signer structural checks", () => {
+  const secpPublicKey = generateSecp256k1PublicKeyStartingWith("02");
+  const unsigned = buildAnchorDossierUnsignedTransaction({
+    ...validInput,
+    signerPublicKey: secpPublicKey,
+  });
+  const unsignedPayload = JSON.stringify(
+    (unsigned.transaction.toJSON() as { payload: unknown }).payload,
+  );
+
+  unsigned.transaction.setSignature(
+    testSignature,
+    CasperSdk.PublicKey.fromHex(secpPublicKey),
+  );
+
+  const signedJson = unsigned.transaction.toJSON() as {
+    approvals?: unknown[];
+    payload?: unknown;
+  };
+  const approval = getSignedTransactionApprovalDiagnostic({
+    transactionJson: signedJson,
+    connectedPublicKey: secpPublicKey,
+  });
+  const boundary = getSignedTransactionBoundaryDiagnostic(signedJson);
+  const payloadUnchanged =
+    JSON.stringify(signedJson.payload) === unsignedPayload;
+  const finalStructuralValidity =
+    boundary.payloadShapeValid &&
+    boundary.approvalCount >= 1 &&
+    approval.signerPresent &&
+    approval.signaturePresent &&
+    approval.signerMatchesInitiator &&
+    approval.signerMatchesConnectedAccount === true &&
+    payloadUnchanged;
+
+  assert.equal(boundary.approvalCount, 1);
+  assert.equal(approval.signerMatchesInitiator, true);
+  assert.equal(approval.signerMatchesConnectedAccount, true);
+  assert.equal(payloadUnchanged, true);
+  assert.equal(finalStructuralValidity, true);
+});
+
+test("relay approval diagnostics use specific failure codes", () => {
+  expectRelayValidationCode(
+    signedAnchorTransactionWithApproval({
+      signature: `01${"a".repeat(128)}`,
+    }),
+    "APPROVAL_SIGNER_MISSING",
+  );
+  expectRelayValidationCode(
+    signedAnchorTransactionWithApproval({
+      signer: validInput.signerPublicKey,
+    }),
+    "APPROVAL_SIGNATURE_MISSING",
+  );
+  expectRelayValidationCode(
+    signedAnchorTransactionWithApproval({
+      signer: "not-a-public-key",
+      signature: `01${"a".repeat(128)}`,
+    }),
+    "APPROVAL_SHAPE_UNSUPPORTED",
+  );
+  expectRelayValidationCode(
+    signedAnchorTransactionWithApproval({
+      signer: validInput.signerPublicKey,
+      signature: { bytes: "not-supported" },
+    }),
+    "APPROVAL_SHAPE_UNSUPPORTED",
+  );
+});
+
+test("relay signer normalization rejects ambiguous untagged public keys", () => {
+  const untaggedSigner = validInput.signerPublicKey.slice(2);
+  expectRelayValidationCode(
+    signedAnchorTransactionWithApproval({
+      signer: untaggedSigner,
+      signature: `01${"a".repeat(128)}`,
+    }),
+    "APPROVAL_SHAPE_UNSUPPORTED",
+  );
+  assert.equal(
+    getSignedTransactionApprovalDiagnostic({
+      transactionJson: signedAnchorTransactionWithApproval({
+        signer: untaggedSigner,
+        signature: `01${"a".repeat(128)}`,
+      }),
+      connectedPublicKey: validInput.signerPublicKey,
+    }).signerMatchesConnectedAccount,
+    false,
   );
 });
 
@@ -343,7 +556,7 @@ test("server relay validates signed TransactionV1 anchor invariants before RPC",
 
   const missingApproval = signedAnchorTransaction();
   missingApproval.approvals = [];
-  expectRelayValidationCode(missingApproval, "MISSING_APPROVAL");
+  expectRelayValidationCode(missingApproval, "NO_APPROVALS");
 
   const wrongSigner = signedAnchorTransaction();
   wrongSigner.approvals = [
@@ -379,7 +592,62 @@ test("server relay rejects changed anchor evidence metadata", () => {
   });
 });
 
-test("server relay posts the exact signed TransactionV1 JSON and returns submitted only", async () => {
+test("relay builds the official account_put_transaction parameter envelope", () => {
+  const signedTransaction = signedAnchorTransaction();
+  const request = buildAccountPutTransactionRequest({
+    id: 1,
+    signedTransactionV1: signedTransaction,
+  });
+
+  assert.deepEqual(request, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "account_put_transaction",
+    params: [
+      {
+        name: "transaction",
+        value: {
+          Version1: signedTransaction,
+        },
+      },
+    ],
+  });
+  assert.deepEqual(getAccountPutTransactionEnvelopeDiagnostic(request), {
+    rpcMethodUsed: "account_put_transaction",
+    paramsContainerShape: "array",
+    transactionWrapperShape: "Version1",
+    outgoingRequestSchemaValid: true,
+  });
+  assert.doesNotThrow(() => assertAccountPutTransactionEnvelope(request));
+});
+
+test("relay envelope validator rejects raw signed transactions and loose params objects", () => {
+  const signedTransaction = signedAnchorTransaction();
+
+  assert.throws(
+    () => assertAccountPutTransactionEnvelope(signedTransaction),
+    /Casper RPC transaction submission envelope is invalid/,
+  );
+  assert.deepEqual(
+    getAccountPutTransactionEnvelopeDiagnostic({
+      jsonrpc: "2.0",
+      method: "account_put_transaction",
+      params: {
+        transaction: {
+          Version1: signedTransaction,
+        },
+      },
+    }),
+    {
+      rpcMethodUsed: "account_put_transaction",
+      paramsContainerShape: "object",
+      transactionWrapperShape: "unknown",
+      outgoingRequestSchemaValid: false,
+    },
+  );
+});
+
+test("server relay posts the official signed TransactionV1 envelope and returns submitted only", async () => {
   const signedTransaction = signedAnchorTransaction();
   let relayedBody: unknown;
   globalThis.fetch = (async (_url, init) => {
@@ -411,12 +679,20 @@ test("server relay posts the exact signed TransactionV1 JSON and returns submitt
     jsonrpc: "2.0",
     id: (relayedBody as { id: number }).id,
     method: "account_put_transaction",
-    params: {
-      transaction: {
-        Version1: signedTransaction,
+    params: [
+      {
+        name: "transaction",
+        value: {
+          Version1: signedTransaction,
+        },
       },
-    },
+    ],
   });
+  assert.equal(
+    getAccountPutTransactionEnvelopeDiagnostic(relayedBody)
+      .outgoingRequestSchemaValid,
+    true,
+  );
 });
 
 test("original unsigned JSON cannot be accidentally relayed after signing", async () => {
@@ -432,7 +708,7 @@ test("original unsigned JSON cannot be accidentally relayed after signing", asyn
   });
 
   assert.equal(result.status, "failed");
-  assert.equal(result.code, "MISSING_APPROVAL");
+  assert.equal(result.code, "NO_APPROVALS");
   assert.equal(fetchCalled, false);
 });
 
@@ -451,11 +727,15 @@ test("server relay reports Casper RPC rejection without confirming the proof", a
     expected: expectedMetadata(),
   });
 
-  assert.deepEqual(result, {
-    status: "failed",
-    code: "CASPER_RPC_REJECTED",
-    message: "transaction rejected",
-  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.code, "CASPER_RPC_REJECTED");
+  assert.equal(result.message, "transaction rejected");
+  if (result.status === "failed") {
+    assert.equal(result.diagnostic?.rpcMethodUsed, "account_put_transaction");
+    assert.equal(result.diagnostic?.paramsContainerShape, "array");
+    assert.equal(result.diagnostic?.transactionWrapperShape, "Version1");
+    assert.equal(result.diagnostic?.outgoingRequestSchemaValid, true);
+  }
 });
 
 test("anchor submission uses the relay and no direct browser RPC write remains", () => {
@@ -474,6 +754,8 @@ test("anchor submission uses the relay and no direct browser RPC write remains",
   assert.equal(componentSource.includes("submitSignedAnchorTransaction"), false);
   assert.equal(componentSource.includes("checkCasperTestnetRpcBrowserReadiness"), false);
   assert.equal(serverSubmissionSource.includes("account_put_transaction"), true);
+  assert.equal(serverSubmissionSource.includes("RpcClient"), false);
+  assert.equal(serverSubmissionSource.includes("putTransaction("), false);
   assert.equal(serverSubmissionSource.includes("PrivateKey"), false);
   assert.equal(serverSubmissionSource.includes("rawSign"), false);
   assert.equal(serverSubmissionSource.includes("setSignature"), false);
@@ -481,4 +763,81 @@ test("anchor submission uses the relay and no direct browser RPC write remains",
   assert.equal(serverSubmissionSource.includes("secret_key"), false);
   assert.equal(serverSubmissionSource.includes("console.log"), false);
   assert.equal(componentSource.includes("console.log"), false);
+});
+
+test("internal signature harness cannot relay, submit, or call Casper RPC", () => {
+  const harnessSource = fs.readFileSync(
+    "components/casper-signature-harness.tsx",
+    "utf8",
+  );
+  const harnessRouteSource = fs.readFileSync(
+    "app/internal/casper-signature-harness/page.tsx",
+    "utf8",
+  );
+  const combined = `${harnessSource}\n${harnessRouteSource}`;
+
+  assert.equal(combined.includes("/api/casper/submit-anchor"), false);
+  assert.equal(combined.includes("relaySignedAnchorTransaction"), false);
+  assert.equal(combined.includes("account_put_transaction"), false);
+  assert.equal(combined.includes("fetch("), false);
+  assert.equal(combined.includes("CASPER_TESTNET_RPC"), false);
+  assert.equal(combined.includes("NO TRANSACTION SUBMITTED"), true);
+  assert.equal(combined.includes("process.env.NODE_ENV === \"production\""), true);
+});
+
+test("production wallet adapter and harness use wrapper instance signature attachment", () => {
+  const liveProofSource = fs.readFileSync(
+    "lib/casper/live-proof-transaction.ts",
+    "utf8",
+  );
+  const harnessSource = fs.readFileSync(
+    "components/casper-signature-harness.tsx",
+    "utf8",
+  );
+  const productionAttachmentSource = `${liveProofSource}\n${harnessSource}`;
+
+  assert.equal(
+    productionAttachmentSource.includes("TransactionV1.setSignature"),
+    false,
+  );
+  assert.equal(
+    productionAttachmentSource.includes("fromTransactionV1"),
+    false,
+  );
+  assert.equal(liveProofSource.includes("transaction.setSignature"), true);
+  assert.equal(harnessSource.includes("signatureAttachmentMethod"), true);
+  assert.equal(harnessSource.includes("Transaction#setSignature"), true);
+});
+
+test("internal signature harness exposes only safe attachment metadata", () => {
+  const harnessSource = fs.readFileSync(
+    "components/casper-signature-harness.tsx",
+    "utf8",
+  );
+
+  assert.equal(harnessSource.includes("walletResponseReceived"), true);
+  assert.equal(harnessSource.includes("signatureRuntimeCategory"), true);
+  assert.equal(harnessSource.includes("primaryNormalization"), true);
+  assert.equal(harnessSource.includes("hexFallbackNormalization"), true);
+  assert.equal(harnessSource.includes("selectedSource"), true);
+  assert.equal(harnessSource.includes("normalizedByteLength"), true);
+  assert.equal(
+    harnessSource.includes("attachmentCompletedWithoutException"),
+    true,
+  );
+  assert.equal(harnessSource.includes("SIGNATURE_ATTACHMENT_EXCEPTION"), true);
+  assert.equal(harnessSource.includes("approvalCount"), true);
+  assert.equal(harnessSource.includes("approvalCountValid"), true);
+  assert.equal(harnessSource.includes("signerPresent"), true);
+  assert.equal(harnessSource.includes("signaturePresent"), true);
+  assert.equal(harnessSource.includes("approvalSignerMatchesInitiator"), true);
+  assert.equal(
+    harnessSource.includes("approvalSignerMatchesConnectedWallet"),
+    true,
+  );
+  assert.equal(harnessSource.includes("payloadUnchanged"), true);
+  assert.equal(harnessSource.includes("finalStructuralValidity"), true);
+  assert.equal(harnessSource.includes("sdkReturnConstructor"), false);
+  assert.equal(harnessSource.includes("JSON.stringify(response"), false);
+  assert.equal(harnessSource.includes("walletTransactionJsonString}</dd>"), false);
 });
