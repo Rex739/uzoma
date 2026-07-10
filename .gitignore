@@ -1,13 +1,32 @@
-.next/
+# Dependencies and generated app output.
 node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
 *.tsbuildinfo
 .DS_Store
 npm-debug.log*
+
+# Local environment only. Store OPENAI_API_KEY and any future Casper
+# wallet/signing secrets in GitHub Secrets or local environment variables,
+# never in the repository.
 .env
 .env.*
 !.env.example
+
+# Private keys, wallet files, and local deployer material.
 *.pem
 *.key
 *.p12
 *.pfx
 secret_key*
+*.wallet
+wallet-data/
+wallets/
+keystore/
+keystores/
+
+# Rust/Casper/Odra build output.
+target/
