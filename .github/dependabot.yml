@@ -1,21 +1,22 @@
 version: 2
 updates:
-  # Root app dependencies
+  # Next.js / TypeScript application dependencies.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
 
-  # Smart contract / Hardhat dependencies
-  - package-ecosystem: "npm"
-    directory: "/contracts"
+  # Casper/Odra smart contract dependencies.
+  - package-ecosystem: "cargo"
+    directory: "/contracts/build-dossier-registry"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
 
-  # GitHub Actions versions
+  # GitHub Actions versions.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
